@@ -6,6 +6,8 @@
 #include <stdbool.h>
 
 #define MEM_SIZE 256
+#define WIDE_SKIP 7
+#define NEW_LINE 15
 
 typedef struct __attribute__((packed)) {
     uint8_t A, D, X, Y, PC;
@@ -27,9 +29,9 @@ static void dump_memory(uint8_t const *memory) {
     for (unsigned i = 0; i < MEM_SIZE; ++i) {
         printf("%02" PRIx8, memory[i]);
         unsigned r = i & 0xf;
-        if (r == 7)
+        if (r == WIDE_SKIP)
             printf("  ");
-        else if (r == 15)
+        else if (r == NEW_LINE)
             printf("\n");
         else
             printf(" ");
