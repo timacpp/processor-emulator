@@ -22,7 +22,7 @@ RCR_2LO equ 0x0
 ; Bytes required to store a CPU state
 CPU_SZ  equ 8
 
-; Indecis of virtual registers and flags on stack
+; Indecis of virtual registers and flags values located on stack
 A_REG   equ 0
 D_REG   equ 1
 X_REG   equ 2
@@ -34,9 +34,13 @@ Z_FLAG  equ 7
 section .text
 
 so_emul:
-        push    rbx         ; Preserving nonvolatile register
-        sub     rsp, CPU_SZ ; Allocating 8 bytes on stack for CPU state
-        xor     r8, r8      ; Clearing temporary variable for future use
+        test    rdx, rdx    ; If program consists of 0 steps
+        jz      end_program ; Leave CPU state unmodified and end program
+
+        push    rbx              ; Preserve nonvolatile rbx register
+        xor     r8, r8           ; Clear temporary variable for future use
+        sub     rsp, CPU_SZ      ; Allocate 8 bytes on stack for CPU state
+        mov     qword [rsp], rax ; Use previous CPU state parameters
 
 steps_loop: ; for (; steps > 0; steps--)
         mov     r8b, byte [rsp + PC_CNT] ; Read index of the current instruction
@@ -92,14 +96,17 @@ stc:
 brk:
         cmp     ah, BRK_2HI ; 0xF[F]FF
         jne     executed    ; Ignore unmatched instruction
-        jmp     end         ; Break from the program
+        jmp     build_state ; Break from the program
 
 executed:
         inc     byte [rsp + PC_CNT]
         dec     rdx
         jnz     steps_loop
-end:
-        pop    rbx
-        add    rsp, CPU_SZ
 
+build_state:
+        mov    rax, qword [rsp]
+        add    rsp, CPU_SZ
+        pop    rbx
+
+end_program:
         ret
