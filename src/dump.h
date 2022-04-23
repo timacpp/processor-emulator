@@ -1,8 +1,0 @@
-//
-// Created by tima on 17/04/22.
-//
-
-#ifndef PROCESSOR_EMULATOR_DUMP_H
-#define PROCESSOR_EMULATOR_DUMP_H
-
-#endif //PROCESSOR_EMULATOR_DUMP_H
