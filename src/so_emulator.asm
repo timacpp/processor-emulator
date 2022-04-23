@@ -63,8 +63,8 @@ Z_FLAG  equ 7
 
 CPU_SZ  equ 8 ; Bytes required to store a CPU state
 
-; Numerical values referring to virtual memory. Smaller values (0-4)
-; correspond to values of virtual registers ordered as in CPU state.
+; Values referring to virtual memory and registers. Smaller entries (0-4)
+; correspond to values of virtual registers (same order as in CPU state).
 X_MEM   equ 4
 Y_MEM   equ 5
 XD_MEM  equ 6
@@ -72,44 +72,49 @@ YD_MEM  equ 7
 
 section .text
 
-; Matches argument value stored in 'bl' (0-7) with value of virtual
-; register or adressed memory. Result is written to 'al'.
-; Registers modified: al, r8b, r9b, r10b
+; Matches argument stored in 'bl' (0-7) with the value of a virtual
+; register or an adressed memory. Result is written to 'al'.
+; Registers modified: al, r8b, r9b, r10b.
 match_argument:
+; If argument is not greater than 3, then it referres to a register.
         cmp     bl, Y_REG
-        jna     x_memory
+        jna     match_x_mem
         mov     al, byte [rsi + rbx * 2]
         ret
-x_memory:
-        mov     r8b, byte [rsp + X_REG]
+
+; Otherwise, we check though each value referring to an adressed memory.
+match_x_mem:
+        mov     r8b, byte [rsp + X_REG] ; Write value of register X
         cmp     bl, X_MEM
-        jne     y_memory
+        jne     match_y_mem
         mov     al, byte [rsi + r8 * 2]
         ret
-y_memory:
-        mov     r9b, byte [rsp + Y_REG]
+match_y_mem:
+        mov     r9b, byte [rsp + Y_REG] ; Write value of register Y
         cmp     bl, Y_MEM
-        jne     xd_memory
+        jne     match_xd_mem
         mov     al, byte [rsi + r9 * 2]
         ret
-xd_memory:
-        mov     r10b, byte [rsp + D_REG]
+match_xd_mem:
+        mov     r10b, byte [rsp + D_REG] ; Write value of register D
         cmp     bl, XD_MEM
-        jne     yd_memory
-        add     r10b, r8b
+        jne     match_yd_mem
+        add     r10b, r8b ; Now r10b holds value of X + D
         mov     al, byte [rsi + r10 * 2]
         ret
-yd_memory:
+match_yd_mem:
         cmp     bl, YD_MEM
         jne     unmatched
-        add     r10b, r9b
+        add     r10b, r9b ; Now r10b holds value of Y + D
         mov     al, byte [rsi + r10 * 2]
         ret
+
+; Terminate program if argument did not match. For debugging purposes.
 unmatched:
         jmp     build_state
 
 so_emul: ; TODO: preserve state
-        xor     rax, rax
+        xor     rax, rax    ; TODO
         test    rdx, rdx    ; If program consists of 0 steps
         jz      end_program ; Leave CPU state unmodified and end program
 
@@ -120,7 +125,7 @@ so_emul: ; TODO: preserve state
 
         push    rbx              ; Preserve nonvolatile rbx register
         sub     rsp, CPU_SZ      ; Allocate 8 bytes on stack for CPU state
-        mov     qword [rsp], 0   ; Clearing initial CPU state parameters
+        mov     qword [rsp], 0   ; TODO
 
 steps_loop:
         mov     r8b, byte [rsp + PC_CNT] ; Read index of the current instruction
@@ -177,8 +182,8 @@ sbb:
 execute_ai:
         cmp     bh, AI_HIMX ; If the highest nibble is not from range [0x4, 0x6]
         ja      execute_a1  ; then the instructions does not belong to AI.
-
         mov     bl, ah ; Now bx holds the highest byte of the code
+
 movi:
         cmp     bx, MOVI_BY
         jne     xori
