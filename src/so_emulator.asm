@@ -1,137 +1,105 @@
-; Solution modifies rbx, rax, r8-15 registers and preserved rbx, r12-r15.
-; Content of registers A, D, X, Y, PC is located inside r8b, r9b, 10b, r11b, r12b.
-; The following naming conventions are used: rdi - code, rsi - data, rdx - steps.
+; For the matter of simplicity I use term nibble to describe a single hexadecimal digit:
+; 0x[highest nibble][second highest nibble][second lowest nibble][lowest nibble]
 
 global so_emul
 
-STATE   equ 8 ; Bytes required to store CPU state
+; Maximal value of the highest nibble of instructions:
+A2_MAX  equ 0x3 ; - requiring two arguments
+AI_MAX  equ 0x6 ; - requiring one argument and immediate value
 
-; Indecis of CPU registers, flags and counter located inside rsp register.
-; E.g. content of register X is [rsp + X_REG], carry flag is [rsp + C_FLG]
+; Exact value of the highest nibble of instructions:
+A1_EXCT equ 0x7 ; - requiring only one argument
+I1_EXCT equ 0xC ; - requiring only one immediate value
+
+; Second highest nibbles of instructions without parameters
+CLC_2HI equ 0x0
+STC_2HI equ 0x1
+BRK_2HI equ 0xF
+
+; Second lowest nibbles of instructions with one argument
+RCR_2LO equ 0x0
+
+; Bytes required to store a CPU state
+CPU_SZ  equ 8
+
+; Indecis of virtual registers and flags on stack
 A_REG   equ 0
 D_REG   equ 1
 X_REG   equ 2
 Y_REG   equ 3
 PC_CNT  equ 4
-C_FLG   equ 6
-Z_FLG   equ 7
-
-; Numerical values of arguments to encode virtual memory content.
-; Values from 0 to 4 correpond to A, D, X, Y (same order as in CPU state)
-; E.g. XD_MEM corresponds to [X + D], X_MEM to [X].
-X_MEM   equ 4
-Y_MEM   equ 5
-XD_MEM  equ 6
-YD_MEM  equ 7
-
-MX_ARG  equ 7      ; Maximal argument value
-MX_IMM  equ 0xff   ; Maximal immediate value
-ARG1_C  equ 0x100  ; Code of first argument
-ARG2_C  equ 0x0800 ; Code of second argument
-
-; Codes of instructions
-MOV_C   equ 0x0000
-OR_C    equ 0x0002
-ADD_C   equ 0x0004
-SUB_C   equ 0x0005
-ADC_C   equ 0x0006
-SBB_C   equ 0x0007
-MOVI_C  equ 0x4000
-XORI_C  equ 0x5800
-ADDI_C  equ 0x6000
-CMPI_C  equ 0x6800
-RCR_C   equ 0x7001
-CLC_C   equ 0x8000
-STC_C   equ 0x8100
-JMP_C   equ 0xC000
-JNC_C   equ 0xC200
-JC_C    equ 0xC300
-JNZ_C   equ 0xC400
-JZ_C    equ 0xC500
-BRK_C   equ 0xFFFF
-
-; TODO: get rid of pushs ?
-; TODO: compare program size with .rodata
+C_FLAG  equ 6
+Z_FLAG  equ 7
 
 section .text
 
-match_arg: ; TODO: ch, cl
-        cmp     al, Y_REG
-        mov     al, byte [rsp + rax]
-        jna     return
-return:
-        ret
-
 so_emul:
-        xor     r8, r8
-        xor     r9, r9
-        sub     rsp, STATE
-state_loop:
-        ; TODO loop to clear rsp stack
-        mov     byte [rsp], 0
-        xor     r8, r8 ; Index of the next instruction to execute
+        push    rbx         ; Preserving nonvolatile register
+        sub     rsp, CPU_SZ ; Allocating 8 bytes on stack for CPU state
+        xor     r8, r8      ; Clearing temporary variable for future use
+
 steps_loop: ; for (; steps > 0; steps--)
-        mov     r9w, word [rdi + r8 * 2] ; Value of instruction to execute: code[r8]
-        ; TODO noarg check
-        ; TODO imm1 check
-        xor     r10w, r10w ; Clear loop variable for arg1_loop
-arg1_loop: ;  for (uint16_t arg1 = 0; arg1 < mx_arg; arg1++)
-        call    match_arg
-        mov     cl, al
+        mov     r8b, byte [rsp + PC_CNT] ; Read index of the current instruction
+        mov     ax, word [rdi + r8 * 2]  ; Read code of current instruction
 
-        mov     ax, ARG1_C
-        mul     r10w
-        mov     bx, ax ; bx = 0x100 * arg1
+        mov     bl, al   ; Extract lowest byte of the code
+        and     bl, 0x0F ; Consider only 4 first bits (lowest nibble)
 
-        mov     ax, r9w
-        sub     ax, bx
-        sub     ax, MOVI_C ; ax = current instruction code - movi code - 0x100 * arg1
-        mov     ch, al
-        cmp     ch, MX_IMM
-        jna     movi
+        mov     bh, ah   ; Extract highest byte of the code
+        and     bh, 0xF0 ; Consider only 4 last bits (highest nibble)
 
+        and     ah, 0x0F ; Extract second highest nibble
+        and     al, 0xF0 ; Extract second lowest nibble
+instructions_two_args:
+        cmp     bh, A2_MAX
+        ja      instructions_arg_imm8
         ; TODO
 
-        xor     r11w, r11w ; Clear loop variable for arg2_loop
-arg2_loop: ;  for (uint16_t arg2 = 0; arg2 < mx_arg; arg2++)
-        call    match_arg
-        mov     ch, al
-
-        mov     ax, ARG2_C
-        mul     r11w
-        add     bx, ax ; bx += 0x0800 * arg2
-
-        mov     ax, MOV_C
-        add     ax, bx ; ax = mov code + 0x100 * arg1 + 0x0800 * arg2
-        cmp     ax, r9w
-        je      mov
-
+instructions_arg_imm8:
+        cmp     bh, AI_MAX
+        ja      instructions_one_arg
         ; TODO
 
-        cmp     r11w, MX_ARG
-        inc     r11w
-        jna     arg2_loop
+instructions_one_arg:
+; Argument value is encoded on the second highest nibble.
+        cmp     bh, A1_EXCT
+        jne     instructions_one_imm8
+rcr:
+        cmp     al, RCR_2LO
+        jne     executed
+        ; TODO: RCR
+        jmp     executed
 
-        cmp     r10w, MX_ARG
-        inc     r10w
-        jna     arg1_loop
+instructions_one_imm8:
+        cmp     bh, I1_EXCT
+        jne     instructions_no_args
+
+
+instructions_no_args:
+; Instruction type is encoded on the second highest nibble.
+clc:
+        cmp     ah, CLC_2HI ; 0x8[0]00
+        jne     stc
+        mov     byte [rsp + C_FLAG], 0 ; Clear virtual carry factor
+        jmp     executed
+
+stc:
+        cmp     ah, STC_2HI ; 0x8[1]00
+        jne     brk
+        mov     byte [rsp + C_FLAG], 1 ; Set virtual carry factor
+        jmp     executed
+
+brk:
+        cmp     ah, BRK_2HI ; 0xF[F]FF
+        jne     executed    ; Ignore unmatched instruction
+        jmp     end         ; Break from the program
 
 executed:
-        inc     r8
+        inc     byte [rsp + PC_CNT]
         dec     rdx
         jnz     steps_loop
-
-        ; TODO build state
-
-        jmp     end
-
-mov:
-        mov     cl, ch
-        jmp     end
-movi:
-        mov     cl, ch
-        jmp     end
 end:
-        mov     al, byte [rsp]
-        add     rsp, STATE
+        pop    rbx
+        add    rsp, CPU_SZ
+
         ret
