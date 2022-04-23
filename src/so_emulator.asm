@@ -52,7 +52,7 @@ JC_2HI  equ 0x3
 JNZ_2HI equ 0x4
 JZ_2HI  equ 0x5
 
-; Indecis of virtual registers and flags values located on stack
+; Indices of virtual registers and flags values located on stack
 A_REG   equ 0
 D_REG   equ 1
 X_REG   equ 2
@@ -63,7 +63,7 @@ Z_FLAG  equ 7
 
 CPU_SZ  equ 8 ; Bytes required to store a CPU state
 
-; Numerical values refering to virtual memory. Smaller values (0-4)
+; Numerical values referring to virtual memory. Smaller values (0-4)
 ; correspond to values of virtual registers ordered as in CPU state.
 X_MEM   equ 4
 Y_MEM   equ 5
@@ -224,7 +224,7 @@ brk:
 executed:
         inc     byte [rsp + PC_CNT] ; Increment PC counter
         dec     rdx                 ; Decrement steps left to perform
-        jnz     steps_loop          ; Repeat steps_loop untill steps is zero
+        jnz     steps_loop          ; Repeat steps_loop until steps is zero
 
 build_state:
         mov     rax, qword [rsp]
