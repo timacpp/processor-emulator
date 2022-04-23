@@ -138,12 +138,12 @@ movi:
         cmp     bx, MOVI_BY
         jne     xori
         ; TODO
-        ja    executed
+        ja      executed
 xori:
         cmp     bx, XORI_BY
         ja      addi
         ; TODO
-        jmp      executed
+        jmp     executed
 addi:
         cmp     bx, ADDI_BY
         ja      cmpi
@@ -218,9 +218,9 @@ executed:
         jnz     steps_loop          ; Repeat steps_loop untill steps is zero
 
 build_state:
-        mov    rax, qword [rsp]
-        add    rsp, CPU_SZ
-        pop    rbx
+        mov     rax, qword [rsp]
+        add     rsp, CPU_SZ
+        pop     rbx
 
 end_program:
         ret
