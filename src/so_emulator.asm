@@ -1,4 +1,4 @@
-; Solution modifies rax, rsp, rbx, rdi, rsi, r8 registers and preserves rbx.
+; Solution modifies rax, rsp, rdi, rsi, rbx, r8, r9, r10 registers and preserves rbx.
 
 ; For the matter of simplicity I use term nibble to describe a single hexadecimal digit:
 ; 0x[highest nibble][second highest nibble][second lowest nibble][lowest nibble]
@@ -71,18 +71,56 @@ XD_MEM  equ 6
 YD_MEM  equ 7
 
 section .text
-match_arg:
+
+; Matches argument value stored in 'bl' (0-7) with value of virtual
+; register or adressed memory. Result is written to 'al'.
+; Registers modified: al, r8b, r9b, r10b
+match_argument:
+        cmp     bl, Y_REG
+        jna     x_memory
+        mov     al, byte [rsi + rbx * 2]
         ret
+x_memory:
+        mov     r8b, byte [rsp + X_REG]
+        cmp     bl, X_MEM
+        jne     y_memory
+        mov     al, byte [rsi + r8 * 2]
+        ret
+y_memory:
+        mov     r9b, byte [rsp + Y_REG]
+        cmp     bl, Y_MEM
+        jne     xd_memory
+        mov     al, byte [rsi + r9 * 2]
+        ret
+xd_memory:
+        mov     r10b, byte [rsp + D_REG]
+        cmp     bl, XD_MEM
+        jne     yd_memory
+        add     r10b, r8b
+        mov     al, byte [rsi + r10 * 2]
+        ret
+yd_memory:
+        cmp     bl, YD_MEM
+        jne     unmatched
+        add     r10b, r9b
+        mov     al, byte [rsi + r10 * 2]
+        ret
+unmatched:
+        jmp     build_state
 
 so_emul: ; TODO: preserve state
         xor     rax, rax
         test    rdx, rdx    ; If program consists of 0 steps
         jz      end_program ; Leave CPU state unmodified and end program
 
+        ; Clear registers for storing temporary values
+        xor     r8, r8
+        xor     r9, r9
+        xor     r10, r10
+
         push    rbx              ; Preserve nonvolatile rbx register
-        xor     r8, r8           ; Clear temporary variable for future use
         sub     rsp, CPU_SZ      ; Allocate 8 bytes on stack for CPU state
-        mov     qword [rsp], 0
+        mov     qword [rsp], 0   ; Clearing initial CPU state parameters
 
 steps_loop:
         mov     r8b, byte [rsp + PC_CNT] ; Read index of the current instruction
