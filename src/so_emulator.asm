@@ -23,19 +23,19 @@ AI_HIMX equ 0x6
 A1_HIEX equ 0x7
 I1_HIEX equ 0xC
 
-; Second highest nibbles of instructions of each A0 instruction:
+; Second highest nibbles of each A0 instruction:
 CLC_2HI equ 0x0
 STC_2HI equ 0x1
 BRK_2HI equ 0xF
 
-; Second highest nibbles of instructions of each I1 instruction:
+; Second highest nibbles of each I1 instruction:
 JMP_2HI equ 0x0
 JNC_2HI equ 0x2
 JC_2HI  equ 0x3
 JNZ_2HI equ 0x4
 JZ_2HI  equ 0x5
 
-; Lowest nibbles of instructions of each A2 instruction:
+; Lowest nibbles of each A2 instruction:
 MOV_LO  equ 0x0
 OR_LO   equ 0x2
 ADD_LO  equ 0x4
@@ -98,32 +98,32 @@ execute_a2:
         cmp     bh, A2_HIMX ; If the highest nibble is not from range [0x0, 0x3]
         ja      execute_ai  ; then the instruction does not belong to A2.
 
-.mov:
+mov:
         cmp     bl, MOV_LO
-        jne     .or
+        jne     or
         ; TODO
         jmp     executed
-.or:
+or:
         cmp     bl, OR_LO
-        jne     .add
+        jne     add
         ; TODO
         jmp     executed
-.add:
+add:
         cmp     bl, ADD_LO
-        jne     .sub
+        jne     sub
         ; TODO
         jmp     executed
-.sub:
+sub:
         cmp     bl, SUB_LO
-        jne     .adc
+        jne     adc
         ; TODO
         jmp     executed
-.adc:
+adc:
         cmp     bl, ADC_LO
-        jne     .sbb
+        jne     sbb
         ; TODO
         jmp     executed
-.sbb:
+sbb:
         cmp     bl, SBB_LO
         jne     execute_ai
         ; TODO
@@ -135,22 +135,22 @@ execute_ai:
         ja      execute_a1  ; then the instructions does not belong to AI.
 
         mov     bl, ah ; Now bx holds the highest byte of the code
-.movi:
+movi:
         cmp     bx, MOVI_BY
-        jne     .xori
+        jne     xori
         ; TODO
         ja    executed
-.xori:
+xori:
         cmp     bx, XORI_BY
-        ja      .addi
+        ja      addi
         ; TODO
         jmp      executed
-.addi:
+addi:
         cmp     bx, ADDI_BY
-        ja      .cmpi
+        ja      cmpi
         ; TODO
         jmp     executed
-.cmpi:
+cmpi:
         cmp     bx, CMPI_BY
         ja      execute_a1
         ; TODO
@@ -161,7 +161,7 @@ execute_a1:
         cmp     bh, A1_HIEX ; If the highest nibble is not equal to 0x7
         jne     execute_i1  ; then the instruction does not belong to A1.
 ; Argument value is encoded on the second highest nibble.
-.rcr:
+rcr:
         cmp     al, RCR_2LO
         jne     executed
         ; TODO
@@ -170,27 +170,27 @@ execute_a1:
 execute_i1:
         cmp     bh, I1_HIEX ; If the highest nibble is not equal to 0xC
         jne     execute_a0  ; then the instruction does not belong to I1
-.jmp:
+jmp:
         cmp     ah, JMP_2HI
-        jne     .jnc
+        jne     jnc
         ; TODO
         jmp     executed
-.jnc:
+jnc:
         cmp     ah, JNC_2HI
-        jne     .jc
+        jne     jc
         ; TODO
         jmp     executed
-.jc:
+jc:
         cmp     ah, JC_2HI
-        jne     .jnz
+        jne     jnz
         ; TODO
         jmp     executed
-.jnz:
+jnz:
         cmp     ah, JNZ_2HI
-        jne     .jz
+        jne     jz
         ; TODO
         jmp     executed
-.jz:
+jz:
         cmp     ah, JZ_2HI
         jne     execute_a0
         ; TODO
@@ -198,17 +198,17 @@ execute_i1:
 
 ; *Assume* instruction is from A0 and *try* to execute it.
 execute_a0:
-.clc:
+clc:
         cmp     ah, CLC_2HI
-        jne     .stc
+        jne     stc
         mov     byte [rsp + C_FLAG], 0 ; Clear virtual carry factor
         jmp     executed
-.stc:
+stc:
         cmp     ah, STC_2HI
-        jne     .brk
+        jne     brk
         mov     byte [rsp + C_FLAG], 1 ; Set virtual carry factor
         jmp     executed
-.brk:
+brk:
         cmp     ah, BRK_2HI
         jne     executed    ; Ignore unmatched instruction
         jmp     build_state ; Terminate the program
