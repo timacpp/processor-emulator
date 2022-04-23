@@ -23,6 +23,23 @@ AI_HIMX equ 0x6
 A1_HIEX equ 0x7
 I1_HIEX equ 0xC
 
+; Lowest nibbles of each A2 instruction:
+MOV_LO  equ 0x0
+OR_LO   equ 0x2
+ADD_LO  equ 0x4
+SUB_LO  equ 0x5
+ADC_LO  equ 0x6
+SBB_LO  equ 0x7
+
+; Second lowest nibbles of each A1 instruction:
+RCR_2LO equ 0x0
+
+; Maximal highest *byte* of each AI instruction:
+MOVI_BY equ 0x47
+XORI_BY equ 0x5F
+ADDI_BY equ 0x67
+CMPI_BY equ 0x6F
+
 ; Second highest nibbles of each A0 instruction:
 CLC_2HI equ 0x0
 STC_2HI equ 0x1
@@ -35,26 +52,6 @@ JC_2HI  equ 0x3
 JNZ_2HI equ 0x4
 JZ_2HI  equ 0x5
 
-; Lowest nibbles of each A2 instruction:
-MOV_LO  equ 0x0
-OR_LO   equ 0x2
-ADD_LO  equ 0x4
-SUB_LO  equ 0x5
-ADC_LO  equ 0x6
-SBB_LO  equ 0x7
-
-; Second lowest nibbles of each A1 instruction:
-RCR_2LO equ 0x0
-
-; Maximal highest *byte* of each A2 instruction:
-MOVI_BY equ 0x47
-XORI_BY equ 0x5F
-ADDI_BY equ 0x67
-CMPI_BY equ 0x6F
-
-; Bytes required to store a CPU state
-CPU_SZ  equ 8
-
 ; Indecis of virtual registers and flags values located on stack
 A_REG   equ 0
 D_REG   equ 1
@@ -63,6 +60,8 @@ Y_REG   equ 3
 PC_CNT  equ 4
 C_FLAG  equ 6
 Z_FLAG  equ 7
+
+CPU_SZ  equ 8 ; Bytes required to store a CPU state
 
 section .text
 match_arg:
