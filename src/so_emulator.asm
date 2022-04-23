@@ -78,7 +78,7 @@ section .text
 match_argument:
 ; If argument is not greater than 3, then it referres to a register.
         cmp     bl, Y_REG
-        jna     match_x_mem
+        ja      match_x_mem
         mov     al, byte [rsi + rbx * 2]
         ret
 
