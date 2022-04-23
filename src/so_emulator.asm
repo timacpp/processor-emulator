@@ -63,6 +63,13 @@ Z_FLAG  equ 7
 
 CPU_SZ  equ 8 ; Bytes required to store a CPU state
 
+; Numerical values refering to virtual memory. Smaller values (0-4)
+; correspond to values of virtual registers ordered as in CPU state.
+X_MEM   equ 4
+Y_MEM   equ 5
+XD_MEM  equ 6
+YD_MEM  equ 7
+
 section .text
 match_arg:
         ret
@@ -195,8 +202,10 @@ jz:
         ; TODO
         jmp     executed
 
-; *Assume* instruction is from A0 and *try* to execute it.
+; *Assume* instruction is from A0 and if it is, execute it.
+; Second highest nibble represents instruction type.
 execute_a0:
+; No need to check if instruction category is indeed A0.
 clc:
         cmp     ah, CLC_2HI
         jne     stc
