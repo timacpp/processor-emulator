@@ -15,6 +15,8 @@
 
 global so_emul
 
+NIB     equ 4 ; Bits per nibble
+
 ; Maximal value of the highest nibble of instructions within the category:
 A2_HIMX equ 0x3
 AI_HIMX equ 0x6
@@ -69,8 +71,6 @@ X_MEM   equ 4
 Y_MEM   equ 5
 XD_MEM  equ 6
 YD_MEM  equ 7
-
-NIB  equ 4 ; Size of nibble in bits
 
 section .text
 
@@ -223,32 +223,40 @@ execute_i1:
         jne     execute_a0  ; then the instruction does not belong to I1
 
 ; Immediate value is encoded on the lowest byte.
-        shl     al, NIB
-        or      bl, al
+        shl     al, NIB ; Create trailing zeroes in second lowest nibble
+        or      bl, al  ; Sum two lowest nibbles, now bl is holding the lowest byte
 jmp:
         cmp     ah, JMP_2HI
         jne     jnc
-        add     byte [rsp + PC_CNT], bl
+        add     byte [rsp + PC_CNT], bl ; Unconditionally increase PC counter
         jmp     executed
 jnc:
         cmp     ah, JNC_2HI
         jne     jc
-        ; TODO
+        cmp     byte [rsp + C_FLAG], 0  ; Check whether C flag is set:
+        jne     executed                ; - if not set, do nothing
+        add     byte [rsp + PC_CNT], bl ; - if set, increase PC counter
         jmp     executed
 jc:
         cmp     ah, JC_2HI
         jne     jnz
-        ; TODO
+        cmp     byte [rsp + C_FLAG], 1  ; Check whether C flag is set:
+        jne     executed                ; - if set, do nothing
+        add     byte [rsp + PC_CNT], bl ; - if not set, increase PC counter
         jmp     executed
 jnz:
         cmp     ah, JNZ_2HI
         jne     jz
-        ; TODO
+        cmp     byte [rsp + Z_FLAG], 0  ; Check whether Z flag is set:
+        jne     executed                ; - if set, do nothing
+        add     byte [rsp + PC_CNT], bl ; - if not set, increase PC counter
         jmp     executed
 jz:
         cmp     ah, JZ_2HI
         jne     execute_a0
-        ; TODO
+        cmp     byte [rsp + Z_FLAG], 1  ; Check whether Z flag is set
+        jne     executed                ; - if not set, do nothing
+        add     byte [rsp + PC_CNT], bl ; - if set, increase PC counter
         jmp     executed
 
 ; *Assume* instruction is from A0 and if it is, execute it.
