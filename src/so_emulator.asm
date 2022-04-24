@@ -113,7 +113,7 @@ get_argument:
 ; If argument is not greater than 3, then it referres to a register.
         cmp     ah, Y_REG
         ja      .x_mem
-        mov     r9b, byte [rsi + rax] ; Read value of a register
+        mov     r9b, byte [rsp + rax] ; Read value of a register from CPU state
         jmp     .matched
 ; Otherwise, we check though each value referring to an adressed memory.
 .x_mem:
@@ -152,7 +152,7 @@ set_argument:
 ; If argument is not greater than 3, then it referes to a register.
         cmp     ah, Y_REG
         ja      .x_mem
-        mov     byte [rsi + rax], r9b ; Update value of a register
+        mov     byte [rsp + rax], r9b ; Update value of a register in CPU state
         jmp     .matched
 ; Otherwise, we check though each value referring to an adressed memory.
 .x_mem:
@@ -202,6 +202,11 @@ so_emul:
         xor     r11, r11
         xor     r12, r12
         xor     rbx, rbx
+
+        mov     ah, 4
+        mov     r9b, 2
+        call    set_argument
+        jmp     end_program
 
 steps_loop:
         mov     r8b, byte [rsp + PC_CNT] ; Read index of the current instruction
@@ -269,7 +274,7 @@ execute_ai:
         or      bl, al  ; Store immediate value in bl
 
 ; Argument is encoded on the second lowest nibble after subtracting
-; the second highest nibble of initial instruction code:
+; the second highest nibble of initial (unparameterized) instruction code:
 ; - for MOVI and ADDI it is 0
 ; - for XORI and CMPI it is 8, which is a AI_ARG constant
 
@@ -381,16 +386,15 @@ stc:
 brk:
         cmp     ah, BRK_2HI
         jne     executed    ; Ignore unmatched instruction
-        jmp     build_state ; Terminate the program
+        jmp     end_program ; Terminate the program
 
 executed:
         inc     byte [rsp + PC_CNT] ; Increment PC counter
         dec     rdx                 ; Decrement steps left to perform
         jnz     steps_loop          ; Repeat steps_loop until steps is zero
-build_state:
+
+end_program:
         mov     rax, qword [rsp]
         add     rsp, ST_SIZE
         pop     r12
         pop     rbx
-end_program:
-        ret
