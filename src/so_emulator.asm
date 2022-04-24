@@ -1,4 +1,4 @@
-; Solution modifies rax, rsp, rdi, rsi, rbx, r8, r9, r10 registers and preserves rbx.
+; Solution modifies the following registers: rax, rdi, rsi, r8, r9, r10.
 
 ; For the matter of simplicity I use term nibble to describe a single hexadecimal digit:
 ; 0x[highest nibble][second highest nibble][second lowest nibble][lowest nibble]
@@ -63,70 +63,114 @@ PC_CNT  equ 4
 C_FLAG  equ 6
 Z_FLAG  equ 7
 
-CPU_SZ  equ 8 ; Bytes required to store a CPU state
+ST_SIZE equ 8 ; Bytes required to store a CPU state
 
 ; Values referring to virtual memory and registers. Smaller entries (0-4)
 ; correspond to values of virtual registers (same order as in CPU state).
 X_MEM   equ 4
 Y_MEM   equ 5
 XD_MEM  equ 6
-YD_MEM  equ 7
 
 section .text
 
-; Matches argument stored in 'bl' (0-7) with the value of a virtual
-; register or an adressed memory. Result is written to 'al'.
-; Registers modified: al, r8b, r9b, r10b.
-match_argument:
+; Writes to r9b value of a virtual register or
+; memory matching an argument (0-7) stored in ah.
+; Modifies the following registers: r9b, r10b, r11b, r12b.
+get_argument:
+        push    rax
+        and     rax, 0xFF00 ; Consider only ah for indexing
 ; If argument is not greater than 3, then it referres to a register.
-        cmp     bl, Y_REG
-        ja      match_x_mem
-        mov     al, byte [rsi + rbx * 2]
-        ret
+        cmp     ah, Y_REG
+        ja      .x_mem
+        mov     r9b, byte [rsi + rax] ; Read value of a register
+        jmp     .matched
 ; Otherwise, we check though each value referring to an adressed memory.
-match_x_mem:
-        mov     r8b, byte [rsp + X_REG] ; Write value of register X
-        cmp     bl, X_MEM
-        jne     match_y_mem
-        mov     al, byte [rsi + r8 * 2]
+.x_mem:
+        mov     r10b, byte [rsp + X_REG] ; Write value of register X
+        cmp     ah, X_MEM
+        jne     .y_mem
+        mov     r9b, byte [rsi + r10] ; Read value of [X]
+        jmp     .matched
+.y_mem:
+        mov     r11b, byte [rsp + Y_REG] ; Write value of register Y
+        cmp     ah, Y_MEM
+        jne     .xd_mem
+        mov     r9b, byte [rsi + r11] ; Read value of [Y]
+        jmp     .matched
+.xd_mem:
+        mov     r12b, byte [rsp + D_REG] ; Write value of register D
+        cmp     ah, XD_MEM
+        jne     .yd_mem
+        add     r12b, r10b ; Write value of X + D to r12b
+        mov     r9b, byte [rsi + r12] ; Read value of [X + D]
+        jmp     .matched
+.yd_mem:
+        add     r12b, r11b ; Write value of Y + D to r12b
+        mov     r9b, byte [rsi + r11] ; Read value of [Y + D]
+.matched:
+        pop     rax
         ret
-match_y_mem:
-        mov     r9b, byte [rsp + Y_REG] ; Write value of register Y
-        cmp     bl, Y_MEM
-        jne     match_xd_mem
-        mov     al, byte [rsi + r9 * 2]
-        ret
-match_xd_mem:
-        mov     r10b, byte [rsp + D_REG] ; Write value of register D
-        cmp     bl, XD_MEM
-        jne     match_yd_mem
-        add     r10b, r8b ; Now r10b holds value of X + D
-        mov     al, byte [rsi + r10 * 2]
-        ret
-match_yd_mem:
-        cmp     bl, YD_MEM
-        jne     unmatched
-        add     r10b, r9b ; Now r10b holds value of Y + D
-        mov     al, byte [rsi + r10 * 2]
-        ret
-; Terminate program if argument did not match. For debugging purposes.
-unmatched:
-        jmp     build_state
 
 
-so_emul: ; TODO: preserve state
+; Sets r9b as the value of a virtual register or
+; memory matching an arguent (0-7) stored in ah.
+; Modifies the following registers: rsp, r10b, r11b, r12b.
+set_argument:
+        push    rax
+        and     rax, 0xFF00 ; Consider only ah for indexing
+; If argument is not greater than 3, then it referes to a register.
+        cmp     ah, Y_REG
+        ja      .x_mem
+        mov     byte [rsi + rax], r9b ; Update value of a register
+        jmp     .matched
+; Otherwise, we check though each value referring to an adressed memory.
+.x_mem:
+        mov     r10b, byte [rsp + X_REG] ; Write value of register X
+        cmp     ah, X_MEM
+        jne     .y_mem
+        mov     byte [rsi + r10], r9b ; Update value of [X]
+        jmp     .matched
+.y_mem:
+        mov     r11b, byte [rsp + Y_REG] ; Write value of register Y
+        cmp     ah, Y_MEM
+        jne     .xd_mem
+        mov     byte [rsi + r11], r9b ; Update value of [Y]
+        jmp     .matched
+.xd_mem:
+        mov     r12b, byte [rsp + D_REG] ; Write value of register D
+        cmp     ah, XD_MEM
+        jne     .yd_mem
+        add     r12b, r10b ; Write value of X + D to r12b
+        mov     byte [rsi + r12], r9b ; Update value of [X + D]
+        jmp     .matched
+.yd_mem:
+        add     r12b, r11b ; Write value of Y + D to r12b
+        mov     byte [rsi + r10], r9b ; Update value of [Y + D]
+        jmp     .matched
+.matched:
+        pop     rax
+        ret
+
+
+; TODO: preserve state
+; TODO: thread safety
+
+so_emul:
         xor     rax, rax    ; TODO
         test    rdx, rdx    ; If program consists of 0 steps
         jz      end_program ; Leave CPU state unmodified and end program
 
         push    rbx              ; Preserve nonvolatile rbx register
-        sub     rsp, CPU_SZ      ; Allocate 8 bytes on stack for CPU state
+        push    r12
+        sub     rsp, ST_SIZE     ; Allocate 8 bytes on stack for CPU state
         mov     qword [rsp], 0   ; TODO
 
 ; Clear registers for storing temporary values
         xor     r8, r8
         xor     r9, r9
         xor     r10, r10
+        xor     r11, r11
+        xor     r12, r12
         xor     rbx, rbx
 
 steps_loop:
@@ -139,11 +183,11 @@ steps_loop:
 
         mov     bh, ah   ; Extract highest byte of the code
         and     bh, 0xF0 ; Consider only 4 last bits (highest nibble)
-        shr     bh, NIB  ; Remove trailing zeroes
+        shr     bh, NIB  ; Remove trailing zeroes from the highest nibble
 
         and     ah, 0x0F ; Extract second highest nibble
         and     al, 0xF0 ; Extract second lowest nibble
-        shr     al, NIB  ; Remove trailing zeroes
+        shr     al, NIB  ; Remove trailing zeroes from the second lowest nibble
 
 ; Check if instruction is from A2 and if so, execute it.
 execute_a2:
@@ -184,8 +228,15 @@ sbb:
 execute_ai:
         cmp     bh, AI_HIMX ; If the highest nibble is not from range [0x4, 0x6]
         ja      execute_a1  ; then the instructions does not belong to AI.
+
         ; TODO
+; Instruction type is encoded on the highest byte
         mov     bl, ah ; Now bx holds the highest byte of the code
+
+; Immediate value is encoded on the lowest byte.
+        shl     al, NIB ; Create trailing zeroes in second lowest nibble
+        or      bl, al  ; Sum two lowest nibbles, now bl is holding the lowest byte
+
 movi:
         cmp     bx, MOVI_BY
         jne     xori
@@ -210,13 +261,19 @@ cmpi:
 ; Check if instruction is from A1 and if so, execute it.
 execute_a1:
         cmp     bh, A1_HIEX ; If the highest nibble is not equal to 0x7
-        jne     execute_i1  ; then the instruction does not belong to A1.
-; Argument value is encoded on the second highest nibble.
+        jne     execute_i1  ; then the instruction does not belong to A1
+
+; Encoding rules within the A1 category:
+; - second lowest nibble encodes instruction type
+; - second highest nibble encodes an argument
+
 rcr:
         cmp     al, RCR_2LO
-        jne     executed
-        ; TODO
-        jmp     executed ; Ignore unmatched instruction
+        jne     execute_i1
+        call    get_argument ; Now r9b stores data to which argument refers
+        rcr     r9b, 1       ; Perform a single rotateion
+        call    set_argument ; Update virtual data
+        jmp     executed
 
 execute_i1:
         cmp     bh, I1_HIEX ; If the highest nibble is not equal to 0xC
@@ -284,7 +341,8 @@ executed:
         jnz     steps_loop          ; Repeat steps_loop until steps is zero
 build_state:
         mov     rax, qword [rsp]
-        add     rsp, CPU_SZ
+        add     rsp, ST_SIZE
+        pop     r12
         pop     rbx
 end_program:
         ret
