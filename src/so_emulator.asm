@@ -70,6 +70,8 @@ Y_MEM   equ 5
 XD_MEM  equ 6
 YD_MEM  equ 7
 
+NIB  equ 4 ; Size of nibble in bits
+
 section .text
 
 ; Matches argument stored in 'bl' (0-7) with the value of a virtual
@@ -81,7 +83,6 @@ match_argument:
         ja      match_x_mem
         mov     al, byte [rsi + rbx * 2]
         ret
-
 ; Otherwise, we check though each value referring to an adressed memory.
 match_x_mem:
         mov     r8b, byte [rsp + X_REG] ; Write value of register X
@@ -108,45 +109,46 @@ match_yd_mem:
         add     r10b, r9b ; Now r10b holds value of Y + D
         mov     al, byte [rsi + r10 * 2]
         ret
-
 ; Terminate program if argument did not match. For debugging purposes.
 unmatched:
         jmp     build_state
+
 
 so_emul: ; TODO: preserve state
         xor     rax, rax    ; TODO
         test    rdx, rdx    ; If program consists of 0 steps
         jz      end_program ; Leave CPU state unmodified and end program
 
-        ; Clear registers for storing temporary values
-        xor     r8, r8
-        xor     r9, r9
-        xor     r10, r10
-
         push    rbx              ; Preserve nonvolatile rbx register
         sub     rsp, CPU_SZ      ; Allocate 8 bytes on stack for CPU state
         mov     qword [rsp], 0   ; TODO
+
+; Clear registers for storing temporary values
+        xor     r8, r8
+        xor     r9, r9
+        xor     r10, r10
+        xor     rbx, rbx
 
 steps_loop:
         mov     r8b, byte [rsp + PC_CNT] ; Read index of the current instruction
         mov     ax, word [rdi + r8 * 2]  ; Read code of current instruction
 
+; Split instruction code by nibbles without trailing zeroes: 0x[bh][ah][al][bl]
         mov     bl, al   ; Extract lowest byte of the code
         and     bl, 0x0F ; Consider only 4 first bits (lowest nibble)
 
         mov     bh, ah   ; Extract highest byte of the code
         and     bh, 0xF0 ; Consider only 4 last bits (highest nibble)
+        shr     bh, NIB  ; Remove trailing zeroes
 
         and     ah, 0x0F ; Extract second highest nibble
         and     al, 0xF0 ; Extract second lowest nibble
-
-        ; Now instruction code can be represented as 0x[bh][ah][al][bl].
+        shr     al, NIB  ; Remove trailing zeroes
 
 ; Check if instruction is from A2 and if so, execute it.
 execute_a2:
         cmp     bh, A2_HIMX ; If the highest nibble is not from range [0x0, 0x3]
         ja      execute_ai  ; then the instruction does not belong to A2.
-
 mov:
         cmp     bl, MOV_LO
         jne     or
@@ -182,8 +184,8 @@ sbb:
 execute_ai:
         cmp     bh, AI_HIMX ; If the highest nibble is not from range [0x4, 0x6]
         ja      execute_a1  ; then the instructions does not belong to AI.
+        ; TODO
         mov     bl, ah ; Now bx holds the highest byte of the code
-
 movi:
         cmp     bx, MOVI_BY
         jne     xori
@@ -219,10 +221,14 @@ rcr:
 execute_i1:
         cmp     bh, I1_HIEX ; If the highest nibble is not equal to 0xC
         jne     execute_a0  ; then the instruction does not belong to I1
+
+; Immediate value is encoded on the lowest byte.
+        shl     al, NIB
+        or      bl, al
 jmp:
         cmp     ah, JMP_2HI
         jne     jnc
-        ; TODO
+        add     byte [rsp + PC_CNT], bl
         jmp     executed
 jnc:
         cmp     ah, JNC_2HI
@@ -268,11 +274,9 @@ executed:
         inc     byte [rsp + PC_CNT] ; Increment PC counter
         dec     rdx                 ; Decrement steps left to perform
         jnz     steps_loop          ; Repeat steps_loop until steps is zero
-
 build_state:
         mov     rax, qword [rsp]
         add     rsp, CPU_SZ
         pop     rbx
-
 end_program:
         ret
