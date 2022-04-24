@@ -42,6 +42,9 @@ XORI_BY equ 0x5F
 ADDI_BY equ 0x67
 CMPI_BY equ 0x6F
 
+; Value to subtract from XORI and CMPI second highest nibbles to match an argument
+AI_ARG  equ 0x8
+
 ; Second highest nibbles of each A0 instruction:
 CLC_2HI equ 0x0
 STC_2HI equ 0x1
@@ -71,14 +74,32 @@ X_MEM   equ 4
 Y_MEM   equ 5
 XD_MEM  equ 6
 
-; Sets virtual flag. Parameter must be either C_FLAG or Z_FLAG.
-%macro  setf 1
+; Sets a virtual flag. Parameter must be either C_FLAG or Z_FLAG.
+%macro setf 1
         mov    byte [rsp + %1], 1
 %endmacro
 
 ; Clears a virtual flag. Parameter must be either C_FLAG or Z_FLAG.
-%macro  clrf 1
+%macro clrf 1
         mov    byte [rsp + %1], 0
+%endmacro
+
+; Updates a virtual carry flag with the result of the last operation.
+%macro updc 0
+        jc     .carry
+        clrf   C_FLAG
+        ret
+.carry:
+        setf   C_FLAG
+%endmacro
+
+; Updates a virtual zero flag with the result of the last operation.
+%macro updz 0
+        jz     .zero
+        clrf   Z_FLAG
+        ret
+.zero:
+        setf   Z_FLAG
 %endmacro
 
 section .text
@@ -238,35 +259,53 @@ execute_ai:
         cmp     bh, AI_HIMX ; If the highest nibble is not from range [0x4, 0x6]
         ja      execute_a1  ; then the instructions does not belong to AI.
 
-        ; TODO
 ; Instruction type is encoded on the highest byte
-        mov     bl, ah ; Now bx holds the highest byte of the code
+        shl     ah, NIB ; Create trailing zeroes in second highest nibble
+        or      bh, ah  ; Store instruction type in bh
+        shr     ah, NIB ; Retrieve the initial value of second nibble
 
 ; Immediate value is encoded on the lowest byte.
         shl     al, NIB ; Create trailing zeroes in second lowest nibble
-        or      bl, al  ; Sum two lowest nibbles, now bl is holding the lowest byte
+        or      bl, al  ; Store immediate value in bl
+
+; Argument is encoded on the second lowest nibble after subtracting
+; the second highest nibble of initial instruction code:
+; - for MOVI and ADDI it is 0
+; - for XORI and CMPI it is 8, which is a AI_ARG constant
 
 movi:
-        cmp     bx, MOVI_BY
-        jne     xori
-        ; TODO
-        ja      executed
+        cmp     bl, MOVI_BY
+        ja      xori
+        call    get_argument
+        mov     r9b, bl
+        call    set_argument
+        jmp     executed
 xori:
-        cmp     bx, XORI_BY
+        cmp     bl, XORI_BY
         ja      addi
-        ; TODO
+        call    get_argument
+        xor     r9b, bl
+        updz
+        call    set_argument
         jmp     executed
 addi:
-        cmp     bx, ADDI_BY
+        cmp     bl, ADDI_BY
         ja      cmpi
-        ; TODO
+        call    get_argument
+        add     r9b, bl
+        updz
+        call    set_argument
         jmp     executed
 cmpi:
-        cmp     bx, CMPI_BY
+        cmp     bl, CMPI_BY
         ja      execute_a1
-        ; TODO
+        sub     ah, AI_ARG
+        call    get_argument
+        cmp     r9b, bl
+        updz
+        updc
+        call    set_argument
         jmp     executed
-
 ; Check if instruction is from A1 and if so, execute it.
 execute_a1:
         cmp     bh, A1_HIEX ; If the highest nibble is not equal to 0x7
