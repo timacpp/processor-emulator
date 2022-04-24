@@ -71,6 +71,16 @@ X_MEM   equ 4
 Y_MEM   equ 5
 XD_MEM  equ 6
 
+; Sets virtual flag. Parameter must be either C_FLAG or Z_FLAG.
+%macro  setf 1
+        mov    byte [rsp + %1], 1
+%endmacro
+
+; Clears a virtual flag. Parameter must be either C_FLAG or Z_FLAG.
+%macro  clrf 1
+        mov    byte [rsp + %1], 0
+%endmacro
+
 section .text
 
 ; Writes to r9b value of a virtual register or
@@ -150,7 +160,6 @@ set_argument:
 .matched:
         pop     rax
         ret
-
 
 ; TODO: preserve state
 ; TODO: thread safety
@@ -323,12 +332,12 @@ execute_a0:
 clc:
         cmp     ah, CLC_2HI
         jne     stc
-        mov     byte [rsp + C_FLAG], 0 ; Clear virtual carry factor
+        clrf    C_FLAG ; Use defined macro to clear the carry flag
         jmp     executed
 stc:
         cmp     ah, STC_2HI
         jne     brk
-        mov     byte [rsp + C_FLAG], 1 ; Set virtual carry factor
+        setf    C_FLAG  ; Use defined macro to set the carry flag
         jmp     executed
 brk:
         cmp     ah, BRK_2HI
