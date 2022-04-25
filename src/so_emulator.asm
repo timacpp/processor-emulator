@@ -273,19 +273,20 @@ execute_a2:
         ja      execute_ai  ; then the instruction does not belong to A2.
 
 ; Second argument is encoded on the [11-13] bits indexing from 0:
-        shl     bh, NIB
-        or      bh, ah
-        and     bh, 00111000b
-        shr     bh, 3
-        mov     al, bh
-        call    get_argument
-        mov     r13b, r9b
+        shl     bh, NIB       ; Creating trailing zeroes in the highest nibble
+        or      bh, ah        ; Store the highest byte in bh
+        and     bh, 00111000b ; Consider only bits from range [11-13]
+        shr     bh, LOG_SSZ   ; Remove trailing zeroes
+        mov     al, bh        ; Prepare a parameter for get_argument
+        call    get_argument  ; Now r9b holds the value to which second argument refers
+        mov     r13b, r9b     ; Temporarily store the result in other register
 
 ; First argument is encoded on the second highest nibble modulo 8:
-        and     ah, MOD_MSK ; Reduce modulo 8 by masking 3 lowest bits
-        mov     al, ah
-        call    get_argument
+        and     ah, MOD_MSK  ; Reduce modulo 8 by masking 3 lowest bits
+        mov     al, ah       ; Prepare a parameter for get_argument
+        call    get_argument ; Now r9b holds the value to which first argument refers
 
+; Instruction type is encoded on the lowest nibble.
 mov:
         cmp     bl, MOV_LO
         jne     or
@@ -326,7 +327,7 @@ sbb:
         call    update_cf
         jmp     success_a2
 success_a2:
-        call    set_argument
+        call    set_argument ; Parameter is prepared, set updated first argument
         jmp     executed
 
 ; Check if instruction is from AI and if so, execute it.
@@ -343,9 +344,9 @@ execute_ai:
         or      bl, al  ; Store immediate value in bl
 
 ; Argument is encoded on the second highest nibble modulo 8:
-        mov     al, ah      ; Prepare parameter for get_argument call
-        and     al, MOD_MSK ; Store argument in al
-        call    get_argument
+        mov     al, ah       ; Prepare parameter for get_argument call
+        and     al, MOD_MSK  ; Reduce modulo 8 by masking lower bits
+        call    get_argument ; Now r9b holds the value to which argument refers
 
 movi:
         cmp     bh, MOVI_BY
@@ -372,7 +373,7 @@ cmpi:
         call    update_cf
         jmp     success_ai
 success_ai:
-        call    set_argument
+        call    set_argument ; Parameter is prepared, set updated argument
         jmp     executed
 
 ; Check if instruction is from A1 and if so, execute it.
@@ -380,18 +381,20 @@ execute_a1:
         cmp     bh, A1_HIEX ; If the highest nibble is not equal to 0x7
         jne     execute_i1  ; then the instruction does not belong to A1
 
-; Second lowest nibble encodes the instruction type, second highest encodes an agument.
-        xchg    al, ah ; Prepare parameter for get_argument call
+; Argument is encoded on the second highest nibble.
+        xchg    al, ah ; Prepare parameter for call, second lowest nibble is now in ah
         call    get_argument ; Now r9b stores data to which argument refers
+
+; Instruction type is encoded on the second lowest nibble.
 rcr:
-        cmp     al, RCR_2LO
+        cmp     ah, RCR_2LO
         jne     execute_i1
-        call    match_cf
-        rcr     r9b, 1 ; Perform a single rotation
+        call    match_cf ; Set CF is virtual CF is set
+        rcr     r9b, 1   ; Perform a single rotation
         call    update_cf
         jmp     success_a1
 success_a1:
-        call    set_argument ; Update virtual data
+        call    set_argument ; Parameter is prepared, set updated argument
         jmp     executed
 
 execute_i1:
@@ -400,7 +403,9 @@ execute_i1:
 
 ; Immediate value is encoded on the lowest byte.
         shl     al, NIB ; Create trailing zeroes in second lowest nibble
-        or      bl, al  ; Sum two lowest nibbles, now bl is holding the lowest byte
+        or      bl, al  ; Store the lowest byte in bl
+
+; Instruction type is encoded on the second highest nibble.
 jmp:
         cmp     ah, JMP_2HI
         jne     jnc
@@ -409,35 +414,35 @@ jmp:
 jnc:
         cmp     ah, JNC_2HI
         jne     jc
-        cmp     byte [r15 + C_FLAG], 0  ; Check whether C flag is set:
-        jne     executed                ; - if set, do nothing
-        add     byte [r15 + PC_CNT], bl ; - if not set, increase PC counter
+        cmp     byte [r15 + C_FLAG], 0
+        jne     executed
+        add     byte [r15 + PC_CNT], bl
         jmp     executed
 jc:
         cmp     ah, JC_2HI
         jne     jnz
-        cmp     byte [r15 + C_FLAG], 1  ; Check whether C flag is set:
-        jne     executed                ; - if not set, do nothing
-        add     byte [r15 + PC_CNT], bl ; - if set, increase PC counter
+        cmp     byte [r15 + C_FLAG], 1
+        jne     executed
+        add     byte [r15 + PC_CNT], bl
         jmp     executed
 jnz:
         cmp     ah, JNZ_2HI
         jne     jz
-        cmp     byte [r15 + Z_FLAG], 0  ; Check whether Z flag is set:
-        jne     executed                ; - if set, do nothing
-        add     byte [r15 + PC_CNT], bl ; - if not set, increase PC counter
+        cmp     byte [r15 + Z_FLAG], 0
+        jne     executed
+        add     byte [r15 + PC_CNT], bl
         jmp     executed
 jz:
         cmp     ah, JZ_2HI
         jne     execute_a0
-        cmp     byte [r15 + Z_FLAG], 1  ; Check whether Z flag is set
-        jne     executed                ; - if not set, do nothing
-        add     byte [r15 + PC_CNT], bl ; - if set, increase PC counter
+        cmp     byte [r15 + Z_FLAG], 1
+        jne     executed
+        add     byte [r15 + PC_CNT], bl
         jmp     executed
 
 ; *Assume* instruction is from A0 and if it is, execute it.
-; Second highest nibble represents instruction type.
 execute_a0:
+; Instruction type is encoded on the second highest nibble.
 clc:
         cmp     ah, CLC_2HI
         jne     stc
@@ -459,10 +464,14 @@ executed:
         jnz     steps_loop          ; Repeat steps_loop until steps is zero
 
 end_emulation:
+; Use CPU state as the return value
         mov     rax, qword [r15]
+
+; Retrieve preserved registers
         pop     r15
         pop     r13
         pop     r12
         pop     rbx
+
 terminate:
         ret
