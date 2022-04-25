@@ -1,4 +1,4 @@
-; Solution modifies the following registers: rax, rdi, rsi, r8, r9, r10, r11, r12, r15
+; Solution modifies the following registers: rax, rsi, r8, r9, r10, r11.
 
 ; For the matter of simplicity I use term nibble to describe a single hexadecimal digit:
 ; 0x[highest nibble][second highest nibble][second lowest nibble][lowest nibble]
@@ -54,7 +54,7 @@ JC_2HI  equ 0x3
 JNZ_2HI equ 0x4
 JZ_2HI  equ 0x5
 
-; Indices of virtual registers and flags values located on stack:
+; Indices of CPU state attributes:
 A_REG   equ 0
 D_REG   equ 1
 X_REG   equ 2
@@ -80,16 +80,21 @@ LOG_SSZ equ 3 ; Value of log_2(SSZ) for fast multiplication
 %define CORES 1
 %endif
 
-; NOTE: all macros below assume that rcx is holding a number of the processing cure.
+; *NOTE*: From this point we assume that r15 is *always* holding an address
+; to the CPU state of the processing core. To address specific attributes
+; we simply do "mov reg8, byte [r15 + attr_idx]", where attr_idx belongs to set
+; {A_REG, D_REG, X_REG, Y_REG, C_FLAG, Z_FLAG, PC_CNT}.
 
-; Sets a virtual flag. Parameter must be either C_FLAG or Z_FLAG.
+; Sets a virtual flag of the processing core.
+; Parameter must be either C_FLAG or Z_FLAG.
 %macro setf 1
-        mov    byte [r15 + rcx + %1], 1
+        mov    byte [r15 + %1], 1
 %endmacro
 
-; Clears a virtual flag. Parameter must be either C_FLAG or Z_FLAG.
+; Clears a virtual of the processing core.
+; Parameter must be either C_FLAG or Z_FLAG.
 %macro clrf 1
-        mov    byte [r15 + rcx + %1], 0
+        mov    byte [r15 + %1], 0
 %endmacro
 
 
@@ -115,13 +120,14 @@ update_zf:
 
 
 section .bss
+
+; Global table holding a CPU state of each core
 states: resb CORES * SSZ
 
 section .text
 
 ; Writes to r9b value of a virtual register or
 ; memory matching an argument (0-7) stored in al.
-; Number of the processing core is stored in rcx.
 ; Modifies the following registers: r9b, r10b, r11b, r12b
 get_argument:
         push    rax
@@ -129,34 +135,33 @@ get_argument:
 ; If argument is not greater than 3, then it referres to a register.
         cmp     al, Y_REG
         ja      .x_mem
-        add     rax, rcx
-        mov     r9b, byte [r15 + rax] ; Read value of a register from CPU state
+        mov     r9b, byte [r15 + rax]    ; Read value of a register from the CPU state
         jmp     .matched
 ; Otherwise, we check though each value referring to an adressed memory.
 .x_mem:
-        mov     r10b, byte [r15 + rcx + X_REG] ; Write value of register X
+        mov     r10b, byte [r15 + X_REG] ; Read value of register X
         cmp     al, X_MEM
         jne     .y_mem
-        mov     r9b, byte [rsi + r10] ; Read value of [X]
+        mov     r9b, byte [rsi + r10]    ; Return value of [X]
         jmp     .matched
 .y_mem:
-        mov     r11b, byte [r15 + rcx + Y_REG] ; Write value of register Y
+        mov     r11b, byte [r15 + Y_REG] ; Read value of register Y
         cmp     al, Y_MEM
         jne     .xd_mem
-        mov     r9b, byte [rsi + r11] ; Read value of [Y]
+        mov     r9b, byte [rsi + r11]    ; Return value of [Y]
         jmp     .matched
 .xd_mem:
-        mov     r12b, byte [r15 + rcx + D_REG] ; Write value of register D
+        mov     r12b, byte [r15 + D_REG] ; Read value of register D
         cmp     al, XD_MEM
         jne     .yd_mem
-        add     r12b, r10b ; Write value of X + D to r12b
-        mov     r9b, byte [rsi + r12] ; Read value of [X + D]
+        add     r12b, r10b               ; Now r12b holds value of X + D
+        mov     r9b, byte [rsi + r12]    ; Return value of [X + D]
         jmp     .matched
 .yd_mem:
         cmp     al, YD_MEM
-        jne     .matched ; Ignore argument
-        add     r12b, r11b ; Write value of Y + D to r12b
-        mov     r9b, byte [rsi + r11] ; Read value of [Y + D]
+        jne     .matched                 ; Ignore argument not in range [0, 7]
+        add     r12b, r11b               ; Now r12b holds value of X + D
+        mov     r9b, byte [rsi + r11]    ; Return value of [Y + D]
 .matched:
         pop     rax
         ret
@@ -164,7 +169,6 @@ get_argument:
 
 ; Sets r9b as the value of a virtual register or
 ; memory matching an arguent (0-7) stored in al.
-; Number of the processing core is stored in rcx.
 ; Modifies the following registers: r10b, r11b, r12b.
 set_argument:
         push    rax
@@ -172,46 +176,48 @@ set_argument:
 ; If argument is not greater than 3, then it referes to a register.
         cmp     al, Y_REG
         ja      .x_mem
-        add     rax, rcx
         mov     byte [r15 + rax], r9b ; Update value of a register in CPU state
         jmp     .matched
 ; Otherwise, we check though each value referring to an adressed memory.
 .x_mem:
-        mov     r10b, byte [r15 + rcx + X_REG] ; Write value of register X
+        mov     r10b, byte [r15 + X_REG] ; Read value of register X
         cmp     al, X_MEM
         jne     .y_mem
-        mov     byte [rsi + r10], r9b ; Update value of [X]
+        mov     byte [rsi + r10], r9b    ; Set value of [X]
         jmp     .matched
 .y_mem:
-        mov     r11b, byte [r15 + rcx + Y_REG] ; Write value of register Y
+        mov     r11b, byte [r15 + Y_REG] ; Read value of register Y
         cmp     al, Y_MEM
         jne     .xd_mem
-        mov     byte [rsi + r11], r9b ; Update value of [Y]
+        mov     byte [rsi + r11], r9b    ; Set value of [Y]
         jmp     .matched
 .xd_mem:
-        mov     r12b, byte [r15 + rcx + D_REG] ; Write value of register D
+        mov     r12b, byte [r15 + D_REG] ; Read value of register D
         cmp     al, XD_MEM
         jne     .yd_mem
-        add     r12b, r10b ; Write value of X + D to r12b
-        mov     byte [rsi + r12], r9b ; Update value of [X + D]
+        add     r12b, r10b               ; Now r12b holds value of X + D
+        mov     byte [rsi + r12], r9b    ; Set value of [X + D]
         jmp     .matched
 .yd_mem:
         cmp     al, YD_MEM
-        jne     .matched ; Ignore argument
-        add     r12b, r11b ; Write value of Y + D to r12b
-        mov     byte [rsi + r10], r9b ; Update value of [Y + D]
+        jne     .matched                 ; Ignore argument not in range [0, 7]
+        add     r12b, r11b               ; Now r12b holds the value of of Y + D
+        mov     byte [rsi + r10], r9b    ; Set value of [Y + D]
 .matched:
         pop     rax
         ret
 
+
 so_emul:
-        xor     rax, rax    ; TODO
-        test    rdx, rdx    ; If program consists of 0 steps
+        xor     rax, rax      ; Clear register for return value
+        test    rdx, rdx      ; If program consists of 0 steps
         jz      end_emulation ; Leave CPU state unmodified and end program
 
-        push    rbx          ; Preserve nonvolatile rbx register
+; Preserve nonvolatile registers
+        push    rbx
         push    r12
         push    r15
+
 ; Clear registers for storing temporary values
         xor     r8, r8
         xor     r9, r9
@@ -220,16 +226,19 @@ so_emul:
         xor     r12, r12
         xor     rbx, rbx
 
-        lea     r15, [rel states]
+; If emulating with invalid number of cores, which is
+; strictly greater than CORES, set current core number to zero.
         cmp     rcx, CORES
-        jna     steps_loop
+        jna     valid_core
         xor     rcx, rcx
 
 valid_core:
-        shl     rcx, LOG_SSZ ; TODO
+        shl     rcx, LOG_SSZ      ; Multiply current core number by 8
+        lea     r15, [rel states] ; Read address of the first core CPU state
+        add     r15, rcx          ; Now r15 addresses CPU state of the current core
 
 steps_loop:
-        mov     r8b, byte [r15 + rcx + PC_CNT] ; Read index of the current instruction
+        mov     r8b, byte [r15 + PC_CNT] ; Read index of the current instruction
         mov     ax, word [rdi + r8 * 2]  ; Read code of current instruction
 
 ; Split instruction code by nibbles without trailing zeroes: 0x[bh][ah][al][bl]
@@ -252,37 +261,46 @@ execute_a2:
 ; First argument is encoded on the second highest nibble modulo 8:
         and     ah, MOD_MSK ; Reduce modulo 8 by masking 3 lowest bits
 
-; Second argument is ecoded on the second lowest nibble modulo 8:
+; Second argument is encoded on the [11-13] bits:
+
 
 mov:
         cmp     bl, MOV_LO
         jne     or
         ; TODO
-        jmp     executed
+        jmp     success_a2
 or:
         cmp     bl, OR_LO
         jne     add
         ; TODO
-        jmp     executed
+        call    update_zf
+        jmp     success_a2
 add:
         cmp     bl, ADD_LO
         jne     sub
         ; TODO
-        jmp     executed
+        call    update_zf
+        jmp     success_a2
 sub:
         cmp     bl, SUB_LO
         jne     adc
         ; TODO
-        jmp     executed
+        jmp     success_a2
 adc:
         cmp     bl, ADC_LO
         jne     sbb
         ; TODO
-        jmp     executed
+        call    update_zf
+        call    update_cf
+        jmp     success_a2
 sbb:
         cmp     bl, SBB_LO
         jne     execute_ai
         ; TODO
+        call    update_zf
+        call    update_cf
+        jmp     success_a2
+success_a2:
         jmp     executed
 
 ; Check if instruction is from AI and if so, execute it.
@@ -358,35 +376,35 @@ execute_i1:
 jmp:
         cmp     ah, JMP_2HI
         jne     jnc
-        add     byte [r15 + rcx + PC_CNT], bl ; Unconditionally increase PC counter
+        add     byte [r15 + PC_CNT], bl ; Unconditionally increase PC counter
         jmp     executed
 jnc:
         cmp     ah, JNC_2HI
         jne     jc
-        cmp     byte [r15 + rcx + C_FLAG], 0  ; Check whether C flag is set:
+        cmp     byte [r15 + C_FLAG], 0  ; Check whether C flag is set:
         jne     executed                ; - if not set, do nothing
-        add     byte [r15 + rcx + PC_CNT], bl ; - if set, increase PC counter
+        add     byte [r15 + PC_CNT], bl ; - if set, increase PC counter
         jmp     executed
 jc:
         cmp     ah, JC_2HI
         jne     jnz
-        cmp     byte [r15 + rcx + C_FLAG], 1  ; Check whether C flag is set:
+        cmp     byte [r15 + C_FLAG], 1  ; Check whether C flag is set:
         jne     executed                ; - if set, do nothing
-        add     byte [r15 + rcx + PC_CNT], bl ; - if not set, increase PC counter
+        add     byte [r15 + PC_CNT], bl ; - if not set, increase PC counter
         jmp     executed
 jnz:
         cmp     ah, JNZ_2HI
         jne     jz
-        cmp     byte [r15 + rcx + Z_FLAG], 0  ; Check whether Z flag is set:
+        cmp     byte [r15 + Z_FLAG], 0  ; Check whether Z flag is set:
         jne     executed                ; - if set, do nothing
-        add     byte [r15 + rcx + PC_CNT], bl ; - if not set, increase PC counter
+        add     byte [r15 + PC_CNT], bl ; - if not set, increase PC counter
         jmp     executed
 jz:
         cmp     ah, JZ_2HI
         jne     execute_a0
-        cmp     byte [r15 + rcx + Z_FLAG], 1  ; Check whether Z flag is set
+        cmp     byte [r15 + Z_FLAG], 1  ; Check whether Z flag is set
         jne     executed                ; - if not set, do nothing
-        add     byte [r15 + rcx + PC_CNT], bl ; - if set, increase PC counter
+        add     byte [r15 + PC_CNT], bl ; - if set, increase PC counter
         jmp     executed
 
 ; *Assume* instruction is from A0 and if it is, execute it.
@@ -408,12 +426,12 @@ brk:
         jmp     end_emulation
 
 executed:
-        inc     byte [r15 + rcx + PC_CNT] ; Increment PC counter
+        inc     byte [r15 + PC_CNT] ; Increment PC counter
         dec     rdx                 ; Decrement steps left to perform
         jnz     steps_loop          ; Repeat steps_loop until steps is zero
 
 end_emulation:
-        mov     rax, qword [r15 + rcx]
+        mov     rax, qword [r15]
 terminate:
         pop     r15
         pop     r12
