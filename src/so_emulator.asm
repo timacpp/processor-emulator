@@ -1,4 +1,4 @@
-; Solution modifies the following registers: rax, rdi, rsi, r8, r9, r10.
+; Solution modifies the following registers: rax, rdi, rsi, r8, r9, r10, r11, r12, r15
 
 ; For the matter of simplicity I use term nibble to describe a single hexadecimal digit:
 ; 0x[highest nibble][second highest nibble][second lowest nibble][lowest nibble]
@@ -42,9 +42,6 @@ XORI_BY equ 0x5F
 ADDI_BY equ 0x67
 CMPI_BY equ 0x6F
 
-; Value to subtract from XORI and CMPI second highest nibbles to match an argument
-AI_ARG  equ 0x8
-
 ; Second highest nibbles of each A0 instruction:
 CLC_2HI equ 0x0
 STC_2HI equ 0x1
@@ -57,7 +54,7 @@ JC_2HI  equ 0x3
 JNZ_2HI equ 0x4
 JZ_2HI  equ 0x5
 
-; Indices of virtual registers and flags values located on stack
+; Indices of virtual registers and flags values located on stack:
 A_REG   equ 0
 D_REG   equ 1
 X_REG   equ 2
@@ -66,7 +63,7 @@ PC_CNT  equ 4
 C_FLAG  equ 6
 Z_FLAG  equ 7
 
-ST_SIZE equ 8 ; Bytes required to store a CPU state
+MOD_MSK equ 7 ; Mask for modulo 8 reduction
 
 ; Values referring to virtual memory and registers. Smaller entries (0-4)
 ; correspond to values of virtual registers (same order as in CPU state).
@@ -74,14 +71,24 @@ X_MEM   equ 4
 Y_MEM   equ 5
 XD_MEM  equ 6
 
+SSZ     equ 8 ; State size: number of bytes required to store a CPU state.
+LOG_SSZ equ 3 ; Value of log_2(SSZ) for fast multiplication
+
+; Define number of cores for a single-core emulation.
+%ifndef CORES
+%define CORES 1
+%endif
+
+; NOTE: all macros below assume that rcx is holding a number of the processing cure.
+
 ; Sets a virtual flag. Parameter must be either C_FLAG or Z_FLAG.
 %macro setf 1
-        mov    byte [rsp + %1], 1
+        mov    byte [r15 + rcx + %1], 1
 %endmacro
 
 ; Clears a virtual flag. Parameter must be either C_FLAG or Z_FLAG.
 %macro clrf 1
-        mov    byte [rsp + %1], 0
+        mov    byte [r15 + rcx + %1], 0
 %endmacro
 
 ; Updates a virtual carry flag with the result of the last operation.
@@ -102,35 +109,40 @@ XD_MEM  equ 6
         setf   Z_FLAG
 %endmacro
 
+section .bss
+states: resb CORES * SSZ
+
 section .text
 
 ; Writes to r9b value of a virtual register or
-; memory matching an argument (0-7) stored in ah.
-; Modifies the following registers: r9b, r10b, r11b, r12b.
+; memory matching an argument (0-7) stored in al.
+; Number of the processing core is stored in rcx.
+; Modifies the following registers: r9b, r10b, r11b, r12b
 get_argument:
         push    rax
-        and     rax, 0xFF00 ; Consider only ah for indexing
+        and     rax, 0xFF ; Consider only al for indexing
 ; If argument is not greater than 3, then it referres to a register.
-        cmp     ah, Y_REG
+        cmp     al, Y_REG
         ja      .x_mem
-        mov     r9b, byte [rsp + rax] ; Read value of a register from CPU state
+        add     rax, rcx
+        mov     r9b, byte [r15 + rax] ; Read value of a register from CPU state
         jmp     .matched
 ; Otherwise, we check though each value referring to an adressed memory.
 .x_mem:
-        mov     r10b, byte [rsp + X_REG] ; Write value of register X
-        cmp     ah, X_MEM
+        mov     r10b, byte [r15 + rcx + X_REG] ; Write value of register X
+        cmp     al, X_MEM
         jne     .y_mem
         mov     r9b, byte [rsi + r10] ; Read value of [X]
         jmp     .matched
 .y_mem:
-        mov     r11b, byte [rsp + Y_REG] ; Write value of register Y
-        cmp     ah, Y_MEM
+        mov     r11b, byte [r15 + rcx + Y_REG] ; Write value of register Y
+        cmp     al, Y_MEM
         jne     .xd_mem
         mov     r9b, byte [rsi + r11] ; Read value of [Y]
         jmp     .matched
 .xd_mem:
-        mov     r12b, byte [rsp + D_REG] ; Write value of register D
-        cmp     ah, XD_MEM
+        mov     r12b, byte [r15 + rcx + D_REG] ; Write value of register D
+        cmp     al, XD_MEM
         jne     .yd_mem
         add     r12b, r10b ; Write value of X + D to r12b
         mov     r9b, byte [rsi + r12] ; Read value of [X + D]
@@ -144,32 +156,34 @@ get_argument:
 
 
 ; Sets r9b as the value of a virtual register or
-; memory matching an arguent (0-7) stored in ah.
-; Modifies the following registers: rsp, r10b, r11b, r12b.
+; memory matching an arguent (0-7) stored in al.
+; Number of the processing core is stored in rcx.
+; Modifies the following registers: r10b, r11b, r12b.
 set_argument:
         push    rax
-        and     rax, 0xFF00 ; Consider only ah for indexing
+        and     rax, 0xFF ; Consider only al for indexing
 ; If argument is not greater than 3, then it referes to a register.
-        cmp     ah, Y_REG
+        cmp     al, Y_REG
         ja      .x_mem
-        mov     byte [rsp + rax], r9b ; Update value of a register in CPU state
+        add     rax, rcx
+        mov     byte [r15 + rax], r9b ; Update value of a register in CPU state
         jmp     .matched
 ; Otherwise, we check though each value referring to an adressed memory.
 .x_mem:
-        mov     r10b, byte [rsp + X_REG] ; Write value of register X
-        cmp     ah, X_MEM
+        mov     r10b, byte [r15 + rcx + X_REG] ; Write value of register X
+        cmp     al, X_MEM
         jne     .y_mem
         mov     byte [rsi + r10], r9b ; Update value of [X]
         jmp     .matched
 .y_mem:
-        mov     r11b, byte [rsp + Y_REG] ; Write value of register Y
-        cmp     ah, Y_MEM
+        mov     r11b, byte [r15 + rcx + Y_REG] ; Write value of register Y
+        cmp     al, Y_MEM
         jne     .xd_mem
         mov     byte [rsi + r11], r9b ; Update value of [Y]
         jmp     .matched
 .xd_mem:
-        mov     r12b, byte [rsp + D_REG] ; Write value of register D
-        cmp     ah, XD_MEM
+        mov     r12b, byte [r15 + rcx + D_REG] ; Write value of register D
+        cmp     al, XD_MEM
         jne     .yd_mem
         add     r12b, r10b ; Write value of X + D to r12b
         mov     byte [rsi + r12], r9b ; Update value of [X + D]
@@ -182,18 +196,17 @@ set_argument:
         pop     rax
         ret
 
-; TODO: preserve state
-; TODO: thread safety
-
 so_emul:
         xor     rax, rax    ; TODO
         test    rdx, rdx    ; If program consists of 0 steps
         jz      end_program ; Leave CPU state unmodified and end program
 
-        push    rbx              ; Preserve nonvolatile rbx register
+        push    rbx          ; Preserve nonvolatile rbx register
         push    r12
-        sub     rsp, ST_SIZE     ; Allocate 8 bytes on stack for CPU state
-        mov     qword [rsp], 0   ; TODO
+        push    r15
+
+        shl     rcx, LOG_SSZ ; TODO
+        lea     r15, [rel states]
 
 ; Clear registers for storing temporary values
         xor     r8, r8
@@ -203,8 +216,12 @@ so_emul:
         xor     r12, r12
         xor     rbx, rbx
 
-        mov     ah, 4
-        mov     r9b, 2
+        cmp     rcx, CORES
+        jna     valid_core
+        xor     rcx, rcx
+valid_core:
+        mov     al, 0
+        mov     r9b, 5
         call    set_argument
         jmp     end_program
 
@@ -228,6 +245,12 @@ steps_loop:
 execute_a2:
         cmp     bh, A2_HIMX ; If the highest nibble is not from range [0x0, 0x3]
         ja      execute_ai  ; then the instruction does not belong to A2.
+
+; First argument is encoded on the second highest nibble modulo 8:
+        and     ah, MOD_MSK ; Reduce modulo 8 by masking 3 lowest bits
+
+; Second argument is ecoded on the second lowest nibble modulo 8:
+
 mov:
         cmp     bl, MOV_LO
         jne     or
@@ -273,11 +296,9 @@ execute_ai:
         shl     al, NIB ; Create trailing zeroes in second lowest nibble
         or      bl, al  ; Store immediate value in bl
 
-; Argument is encoded on the second lowest nibble after subtracting
-; the second highest nibble of initial (unparameterized) instruction code:
-; - for MOVI and ADDI it is 0
-; - for XORI and CMPI it is 8, which is a AI_ARG constant
-
+; Argument is encoded on the second highest nibble modulo 8:
+        mov     al, ah      ; Prepare parameter for get_argument call
+        and     al, MOD_MSK ; Reduce modulo 8 by masking 3 lowest bits
 movi:
         cmp     bl, MOVI_BY
         ja      xori
@@ -304,25 +325,23 @@ addi:
 cmpi:
         cmp     bl, CMPI_BY
         ja      execute_a1
-        sub     ah, AI_ARG
         call    get_argument
         cmp     r9b, bl
         updz
         updc
         call    set_argument
         jmp     executed
+
 ; Check if instruction is from A1 and if so, execute it.
 execute_a1:
         cmp     bh, A1_HIEX ; If the highest nibble is not equal to 0x7
         jne     execute_i1  ; then the instruction does not belong to A1
 
-; Encoding rules within the A1 category:
-; - second lowest nibble encodes instruction type
-; - second highest nibble encodes an argument
-
+; Second lowest nibble encodes the instruction type, second highest encodes an agument.
 rcr:
         cmp     al, RCR_2LO
         jne     execute_i1
+        mov     al, ah       ; Prepare parameter for get_argument call
         call    get_argument ; Now r9b stores data to which argument refers
         rcr     r9b, 1       ; Perform a single rotateion
         call    set_argument ; Update virtual data
@@ -372,7 +391,6 @@ jz:
 ; *Assume* instruction is from A0 and if it is, execute it.
 ; Second highest nibble represents instruction type.
 execute_a0:
-; No need to check if instruction category is indeed A0.
 clc:
         cmp     ah, CLC_2HI
         jne     stc
@@ -394,7 +412,8 @@ executed:
         jnz     steps_loop          ; Repeat steps_loop until steps is zero
 
 end_program:
-        mov     rax, qword [rsp]
-        add     rsp, ST_SIZE
+        mov     al, byte [r15]
+        pop     r15
         pop     r12
         pop     rbx
+        ret
