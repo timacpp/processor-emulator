@@ -70,6 +70,7 @@ MOD_MSK equ 7 ; Mask for modulo 8 reduction
 X_MEM   equ 4
 Y_MEM   equ 5
 XD_MEM  equ 6
+YD_MEM  equ 7
 
 SSZ     equ 8 ; State size: number of bytes required to store a CPU state.
 LOG_SSZ equ 3 ; Value of log_2(SSZ) for fast multiplication
@@ -91,25 +92,27 @@ LOG_SSZ equ 3 ; Value of log_2(SSZ) for fast multiplication
         mov    byte [r15 + rcx + %1], 0
 %endmacro
 
+
 ; Updates a virtual carry flag with the result of the last operation.
-%macro updc 0
+update_cf:
         jc     .carry
         clrf   C_FLAG
         jmp    .updated
 .carry:
         setf   C_FLAG
-.updated_c:
-%endmacro
+.updated:
+        ret
 
 ; Updates a virtual zero flag with the result of the last operation.
-%macro updz 0
+update_zf:
         jz     .zero
         clrf   Z_FLAG
         jmp    .updated
 .zero:
         setf   Z_FLAG
 .updated:
-%endmacro
+        ret
+
 
 section .bss
 states: resb CORES * SSZ
@@ -150,6 +153,8 @@ get_argument:
         mov     r9b, byte [rsi + r12] ; Read value of [X + D]
         jmp     .matched
 .yd_mem:
+        cmp     al, YD_MEM
+        jne     .matched ; Ignore argument
         add     r12b, r11b ; Write value of Y + D to r12b
         mov     r9b, byte [rsi + r11] ; Read value of [Y + D]
 .matched:
@@ -191,9 +196,10 @@ set_argument:
         mov     byte [rsi + r12], r9b ; Update value of [X + D]
         jmp     .matched
 .yd_mem:
+        cmp     al, YD_MEM
+        jne     .matched ; Ignore argument
         add     r12b, r11b ; Write value of Y + D to r12b
         mov     byte [rsi + r10], r9b ; Update value of [Y + D]
-        jmp     .matched
 .matched:
         pop     rax
         ret
@@ -295,37 +301,32 @@ execute_ai:
 ; Argument is encoded on the second highest nibble modulo 8:
         mov     al, ah      ; Prepare parameter for get_argument call
         and     al, MOD_MSK ; Store argument in al
-
+        call    get_argument
 movi:
         cmp     bh, MOVI_BY
         ja      xori
-        call    get_argument
         mov     r9b, bl
-        call    set_argument
-        jmp     executed
+        jmp     success_ai
 xori:
         cmp     bh, XORI_BY
         ja      addi
-        call    get_argument
         xor     r9b, bl
-        updz
-        call    set_argument
-        jmp     executed
+        call    update_zf
+        jmp     success_ai
 addi:
         cmp     bh, ADDI_BY
         ja      cmpi
-        call    get_argument
         add     r9b, bl
-        updz
-        call    set_argument
-        jmp     executed
+        call    update_zf
+        jmp     success_ai
 cmpi:
         cmp     bh, CMPI_BY
         ja      execute_a1
-        call    get_argument
         cmp     r9b, bl
-        updz
-        updc
+        call    update_zf
+        call    update_cf
+        jmp     success_ai
+success_ai:
         call    set_argument
         jmp     executed
 
@@ -335,12 +336,15 @@ execute_a1:
         jne     execute_i1  ; then the instruction does not belong to A1
 
 ; Second lowest nibble encodes the instruction type, second highest encodes an agument.
+        call    get_argument ; Now r9b stores data to which argument refers
 rcr:
         cmp     al, RCR_2LO
         jne     execute_i1
-        mov     al, ah       ; Prepare parameter for get_argument call
-        call    get_argument ; Now r9b stores data to which argument refers
-        rcr     r9b, 1       ; Perform a single rotateion
+        mov     al, ah ; Prepare parameter for get_argument call
+        rcr     r9b, 1 ; Perform a single rotation
+        call    update_cf
+        jmp     success_a1
+success_a1:
         call    set_argument ; Update virtual data
         jmp     executed
 
