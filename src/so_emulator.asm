@@ -32,6 +32,7 @@ ADD_LO  equ 0x4
 SUB_LO  equ 0x5
 ADC_LO  equ 0x6
 SBB_LO  equ 0x7
+XCHG_LO equ 0x8
 
 ; Second lowest nibbles of each A1 instruction:
 RCR_2LO equ 0x0
@@ -91,7 +92,7 @@ LOG_SSZ equ 3 ; Value of log_2(SSZ) for fast multiplication
         mov    byte [r15 + %1], 1
 %endmacro
 
-; Clears a virtual of the processing core.
+; Clears a virtual flag of the processing core.
 ; Parameter must be either C_FLAG or Z_FLAG.
 %macro clrf 1
         mov    byte [r15 + %1], 0
@@ -144,12 +145,12 @@ section .text
 get_argument:
         push    rax
         and     rax, 0xFF ; Consider only al for indexing
-; If argument is not greater than 3, then it referres to a register.
+; If argument is not greater than 3, then it refers to a register.
         cmp     al, Y_REG
         ja      .x_mem
         mov     r9b, byte [r15 + rax]    ; Read value of a register from the CPU state
         jmp     .matched
-; Otherwise, we check though each value referring to an adressed memory.
+; Otherwise, we check though each value referring to an addressed memory.
 .x_mem:
         mov     r10b, byte [r15 + X_REG] ; Read value of register X
         cmp     al, X_MEM
@@ -180,17 +181,17 @@ get_argument:
 
 
 ; Sets r9b as the value of a virtual register or
-; memory matching an arguent (0-7) stored in al.
+; memory matching an argument (0-7) stored in al.
 ; Modifies the following registers: r10b, r11b, r12b.
 set_argument:
         push    rax
         and     rax, 0xFF ; Consider only al for indexing
-; If argument is not greater than 3, then it referes to a register.
+; If argument is not greater than 3, then it refers to a register.
         cmp     al, Y_REG
         ja      .x_mem
         mov     byte [r15 + rax], r9b ; Update value of a register in CPU state
         jmp     .matched
-; Otherwise, we check though each value referring to an adressed memory.
+; Otherwise, we check though each value referring to an adcressed memory.
 .x_mem:
         mov     r10b, byte [r15 + X_REG] ; Read value of register X
         cmp     al, X_MEM
@@ -213,7 +214,7 @@ set_argument:
 .yd_mem:
         cmp     al, YD_MEM
         jne     .matched                 ; Ignore argument not in range [0, 7]
-        add     r12b, r11b               ; Now r12b holds the value of of Y + D
+        add     r12b, r11b               ; Now r12b holds the value of Y + D
         mov     byte [rsi + r12], r9b    ; Set value of [Y + D]
 .matched:
         pop     rax
@@ -320,12 +321,17 @@ adc:
         jmp     success_a2
 sbb:
         cmp     bl, SBB_LO
-        jne     execute_ai
+        jne     xchg
         call    match_cf
         sbb     r9b, r13b
         call    update_zf
         call    update_cf
         jmp     success_a2
+xchg:
+        cmp     bl, XCHG_LO
+        jne     execute_ai
+
+
 success_a2:
         call    set_argument ; Parameter is prepared, set updated first argument
         jmp     executed
