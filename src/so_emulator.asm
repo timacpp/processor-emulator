@@ -95,18 +95,20 @@ LOG_SSZ equ 3 ; Value of log_2(SSZ) for fast multiplication
 %macro updc 0
         jc     .carry
         clrf   C_FLAG
-        ret
+        jmp    .updated
 .carry:
         setf   C_FLAG
+.updated_c:
 %endmacro
 
 ; Updates a virtual zero flag with the result of the last operation.
 %macro updz 0
         jz     .zero
         clrf   Z_FLAG
-        ret
+        jmp    .updated
 .zero:
         setf   Z_FLAG
+.updated:
 %endmacro
 
 section .bss
@@ -199,7 +201,7 @@ set_argument:
 so_emul:
         xor     rax, rax    ; TODO
         test    rdx, rdx    ; If program consists of 0 steps
-        jz      end_program ; Leave CPU state unmodified and end program
+        jz      end_emulation ; Leave CPU state unmodified and end program
 
         push    rbx          ; Preserve nonvolatile rbx register
         push    r12
@@ -283,9 +285,8 @@ execute_ai:
         ja      execute_a1  ; then the instructions does not belong to AI.
 
 ; Instruction type is encoded on the highest byte
-        shl     ah, NIB ; Create trailing zeroes in second highest nibble
+        shl     bh, NIB ; Create trailing zeroes in the highest nibble
         or      bh, ah  ; Store instruction type in bh
-        shr     ah, NIB ; Retrieve the initial value of second nibble
 
 ; Immediate value is encoded on the lowest byte.
         shl     al, NIB ; Create trailing zeroes in second lowest nibble
@@ -293,16 +294,17 @@ execute_ai:
 
 ; Argument is encoded on the second highest nibble modulo 8:
         mov     al, ah      ; Prepare parameter for get_argument call
-        and     al, MOD_MSK ; Reduce modulo 8 by masking 3 lowest bits
+        and     al, MOD_MSK ; Store argument in al
+
 movi:
-        cmp     bl, MOVI_BY
+        cmp     bh, MOVI_BY
         ja      xori
         call    get_argument
         mov     r9b, bl
         call    set_argument
         jmp     executed
 xori:
-        cmp     bl, XORI_BY
+        cmp     bh, XORI_BY
         ja      addi
         call    get_argument
         xor     r9b, bl
@@ -310,7 +312,7 @@ xori:
         call    set_argument
         jmp     executed
 addi:
-        cmp     bl, ADDI_BY
+        cmp     bh, ADDI_BY
         ja      cmpi
         call    get_argument
         add     r9b, bl
@@ -318,7 +320,7 @@ addi:
         call    set_argument
         jmp     executed
 cmpi:
-        cmp     bl, CMPI_BY
+        cmp     bh, CMPI_BY
         ja      execute_a1
         call    get_argument
         cmp     r9b, bl
@@ -399,15 +401,16 @@ stc:
 brk:
         cmp     ah, BRK_2HI
         jne     executed    ; Ignore unmatched instruction
-        jmp     end_program ; Terminate the program
+        jmp     end_emulation
 
 executed:
         inc     byte [r15 + rcx + PC_CNT] ; Increment PC counter
         dec     rdx                 ; Decrement steps left to perform
         jnz     steps_loop          ; Repeat steps_loop until steps is zero
 
-end_program:
+end_emulation:
         mov     rax, qword [r15 + rcx]
+terminate:
         pop     r15
         pop     r12
         pop     rbx
