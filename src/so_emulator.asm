@@ -204,10 +204,6 @@ so_emul:
         push    rbx          ; Preserve nonvolatile rbx register
         push    r12
         push    r15
-
-        shl     rcx, LOG_SSZ ; TODO
-        lea     r15, [rel states]
-
 ; Clear registers for storing temporary values
         xor     r8, r8
         xor     r9, r9
@@ -216,12 +212,16 @@ so_emul:
         xor     r12, r12
         xor     rbx, rbx
 
+        lea     r15, [rel states]
         cmp     rcx, CORES
         jna     steps_loop
         xor     rcx, rcx
 
+valid_core:
+        shl     rcx, LOG_SSZ ; TODO
+
 steps_loop:
-        mov     r8b, byte [rsp + PC_CNT] ; Read index of the current instruction
+        mov     r8b, byte [r15 + rcx + PC_CNT] ; Read index of the current instruction
         mov     ax, word [rdi + r8 * 2]  ; Read code of current instruction
 
 ; Split instruction code by nibbles without trailing zeroes: 0x[bh][ah][al][bl]
@@ -352,35 +352,35 @@ execute_i1:
 jmp:
         cmp     ah, JMP_2HI
         jne     jnc
-        add     byte [rsp + PC_CNT], bl ; Unconditionally increase PC counter
+        add     byte [r15 + rcx + PC_CNT], bl ; Unconditionally increase PC counter
         jmp     executed
 jnc:
         cmp     ah, JNC_2HI
         jne     jc
-        cmp     byte [rsp + C_FLAG], 0  ; Check whether C flag is set:
+        cmp     byte [r15 + rcx + C_FLAG], 0  ; Check whether C flag is set:
         jne     executed                ; - if not set, do nothing
-        add     byte [rsp + PC_CNT], bl ; - if set, increase PC counter
+        add     byte [r15 + rcx + PC_CNT], bl ; - if set, increase PC counter
         jmp     executed
 jc:
         cmp     ah, JC_2HI
         jne     jnz
-        cmp     byte [rsp + C_FLAG], 1  ; Check whether C flag is set:
+        cmp     byte [r15 + rcx + C_FLAG], 1  ; Check whether C flag is set:
         jne     executed                ; - if set, do nothing
-        add     byte [rsp + PC_CNT], bl ; - if not set, increase PC counter
+        add     byte [r15 + rcx + PC_CNT], bl ; - if not set, increase PC counter
         jmp     executed
 jnz:
         cmp     ah, JNZ_2HI
         jne     jz
-        cmp     byte [rsp + Z_FLAG], 0  ; Check whether Z flag is set:
+        cmp     byte [r15 + rcx + Z_FLAG], 0  ; Check whether Z flag is set:
         jne     executed                ; - if set, do nothing
-        add     byte [rsp + PC_CNT], bl ; - if not set, increase PC counter
+        add     byte [r15 + rcx + PC_CNT], bl ; - if not set, increase PC counter
         jmp     executed
 jz:
         cmp     ah, JZ_2HI
         jne     execute_a0
-        cmp     byte [rsp + Z_FLAG], 1  ; Check whether Z flag is set
+        cmp     byte [r15 + rcx + Z_FLAG], 1  ; Check whether Z flag is set
         jne     executed                ; - if not set, do nothing
-        add     byte [rsp + PC_CNT], bl ; - if set, increase PC counter
+        add     byte [r15 + rcx + PC_CNT], bl ; - if set, increase PC counter
         jmp     executed
 
 ; *Assume* instruction is from A0 and if it is, execute it.
@@ -402,12 +402,12 @@ brk:
         jmp     end_program ; Terminate the program
 
 executed:
-        inc     byte [rsp + PC_CNT] ; Increment PC counter
+        inc     byte [r15 + rcx + PC_CNT] ; Increment PC counter
         dec     rdx                 ; Decrement steps left to perform
         jnz     steps_loop          ; Repeat steps_loop until steps is zero
 
 end_program:
-        mov     al, byte [r15]
+        mov     rax, qword [r15 + rcx]
         pop     r15
         pop     r12
         pop     rbx
