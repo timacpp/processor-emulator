@@ -217,13 +217,8 @@ so_emul:
         xor     rbx, rbx
 
         cmp     rcx, CORES
-        jna     valid_core
+        jna     steps_loop
         xor     rcx, rcx
-valid_core:
-        mov     al, 0
-        mov     r9b, 5
-        call    set_argument
-        jmp     end_program
 
 steps_loop:
         mov     r8b, byte [rsp + PC_CNT] ; Read index of the current instruction
