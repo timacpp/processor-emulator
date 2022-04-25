@@ -216,6 +216,7 @@ so_emul:
 ; Preserve nonvolatile registers
         push    rbx
         push    r12
+        push    r13
         push    r15
 
 ; Clear registers for storing temporary values
@@ -224,6 +225,7 @@ so_emul:
         xor     r10, r10
         xor     r11, r11
         xor     r12, r12
+        xor     r13, r13
         xor     rbx, rbx
 
 ; If emulating with invalid number of cores, which is
@@ -258,49 +260,61 @@ execute_a2:
         cmp     bh, A2_HIMX ; If the highest nibble is not from range [0x0, 0x3]
         ja      execute_ai  ; then the instruction does not belong to A2.
 
+; Second argument is encoded on the [11-13] bits indexing from 0:
+        shl     bh, NIB
+        or      bh, ah
+        and     bh, 00111000b
+        shr     bh, 3
+        mov     al, bh
+        call    get_argument
+        mov     r13b, r9b
+
 ; First argument is encoded on the second highest nibble modulo 8:
         and     ah, MOD_MSK ; Reduce modulo 8 by masking 3 lowest bits
-
-; Second argument is encoded on the [11-13] bits:
-
+        mov     al, ah
+        call    get_argument
 
 mov:
         cmp     bl, MOV_LO
         jne     or
-        ; TODO
+        mov     r9b, r13b
         jmp     success_a2
 or:
         cmp     bl, OR_LO
         jne     add
-        ; TODO
+        or      r9b, r13b
         call    update_zf
         jmp     success_a2
 add:
         cmp     bl, ADD_LO
         jne     sub
-        ; TODO
+        add     r9b, r13b
         call    update_zf
         jmp     success_a2
 sub:
         cmp     bl, SUB_LO
         jne     adc
-        ; TODO
+        sub     r9b, r13b
+        call    update_zf
         jmp     success_a2
 adc:
         cmp     bl, ADC_LO
         jne     sbb
-        ; TODO
+        add     r9b, r13b
+        add     r9b, byte [r15 + C_FLAG]
         call    update_zf
         call    update_cf
         jmp     success_a2
 sbb:
         cmp     bl, SBB_LO
         jne     execute_ai
-        ; TODO
+        sub     r9b, r13b
+        sub     r9b, byte [r15 + C_FLAG]
         call    update_zf
         call    update_cf
         jmp     success_a2
 success_a2:
+        call    set_argument
         jmp     executed
 
 ; Check if instruction is from AI and if so, execute it.
@@ -434,6 +448,7 @@ end_emulation:
         mov     rax, qword [r15]
 terminate:
         pop     r15
+        pop     r13
         pop     r12
         pop     rbx
         ret
