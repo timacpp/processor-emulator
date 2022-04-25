@@ -209,9 +209,9 @@ set_argument:
 
 
 so_emul:
-        xor     rax, rax      ; Clear register for return value
-        test    rdx, rdx      ; If program consists of 0 steps
-        jz      end_emulation ; Leave CPU state unmodified and end program
+        xor     rax, rax  ; Clear register for return value
+        test    rdx, rdx  ; If program consists of 0 steps
+        jz      terminate ; Leave CPU state unmodified and end program
 
 ; Preserve nonvolatile registers
         push    rbx
@@ -447,9 +447,9 @@ executed:
 
 end_emulation:
         mov     rax, qword [r15]
-terminate:
         pop     r15
         pop     r13
         pop     r12
         pop     rbx
+terminate:
         ret

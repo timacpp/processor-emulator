@@ -1,0 +1,10 @@
+*
+!*.c
+!*.cpp
+!*.asm
+!test.sh
+!README.md
+!LICENSE
+!.gitignore
+!*.out
+user_output.out
