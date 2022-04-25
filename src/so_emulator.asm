@@ -139,87 +139,76 @@ states: resb CORES * SSZ
 
 section .text
 
-; Writes to r9b value of a virtual register or
-; memory matching an argument (0-7) stored in al.
-; Modifies the following registers: r9b, r10b, r11b, r12b
-get_argument:
-        push    rax
-        and     rax, 0xFF ; Consider only al for indexing
-; If argument is not greater than 3, then it refers to a register.
-        cmp     al, Y_REG
-        ja      .x_mem
-        mov     r9b, byte [r15 + rax]    ; Read value of a register from the CPU state
-        jmp     .matched
-; Otherwise, we check though each value referring to an addressed memory.
+; Writes to r8b address of a virtual memory
+; matching an argument (0-7) stored in al.
+; Assumes rax is filled with zeroes outside of al.
+; Modifies the following registers: r8b, r10b, r11b, r12b
+get_adress:
+; Check though each value referring to an addressed memory.
 .x_mem:
         mov     r10b, byte [r15 + X_REG] ; Read value of register X
         cmp     al, X_MEM
         jne     .y_mem
-        mov     r9b, byte [rsi + r10]    ; Return value of [X]
-        jmp     .matched
+        mov     r8b, r10b ; Return value of X
+        ret
 .y_mem:
         mov     r11b, byte [r15 + Y_REG] ; Read value of register Y
         cmp     al, Y_MEM
         jne     .xd_mem
-        mov     r9b, byte [rsi + r11]    ; Return value of [Y]
-        jmp     .matched
+        mov     r8b, r11b ; Return value of Y
+        ret
 .xd_mem:
         mov     r12b, byte [r15 + D_REG] ; Read value of register D
         cmp     al, XD_MEM
         jne     .yd_mem
-        add     r12b, r10b               ; Now r12b holds value of X + D
-        mov     r9b, byte [rsi + r12]    ; Return value of [X + D]
-        jmp     .matched
+        add     r12b, r10b ; Now r12 holds value of X + D
+        mov     r8b, r12b  ; Return value of X + D
+        ret
 .yd_mem:
         cmp     al, YD_MEM
-        jne     .matched                 ; Ignore argument not in range [0, 7]
-        add     r12b, r11b               ; Now r12b holds value of X + D
-        mov     r9b, byte [rsi + r12]    ; Return value of [Y + D]
-.matched:
-        pop     rax
+        jne     .ignored     ; Ignore argument not in range [0, 7]
+        add     r12b, r11b   ; Now r12b holds value of X + D
+        mov     r8b, r12b    ; Return value of Y + D
         ret
+.ignored:
+        ret
+
+; Writes to r9b value of a virtual register or
+; memory matching an argument (0-7) stored in al.
+; Modifies the following registers: r8b, r9b, r10b, r11b, r12b
+get_argument:
+       push     rax
+       and      rax, 0xFF ; Consider only al for indexing
+; If argument is not greater than 3, then it refers to a register.
+       cmp      al, Y_REG
+       ja       .memory
+       mov      r9b, byte [r15 + rax] ; Read register value
+       jmp      .matched
+.memory:
+       call     get_adress
+       mov      r9b, byte [rsi + r8] ; Read value under address
+.matched:
+       pop      rax
+       ret
 
 
 ; Sets r9b as the value of a virtual register or
 ; memory matching an argument (0-7) stored in al.
-; Modifies the following registers: r10b, r11b, r12b.
+; Modifies the following registers: r8b, r9b, r10b, r11b, r12b
 set_argument:
-        push    rax
-        and     rax, 0xFF ; Consider only al for indexing
+       push     rax
+       and      rax, 0xFF ; Consider only al for indexing
 ; If argument is not greater than 3, then it refers to a register.
-        cmp     al, Y_REG
-        ja      .x_mem
-        mov     byte [r15 + rax], r9b ; Update value of a register in CPU state
-        jmp     .matched
-; Otherwise, we check though each value referring to an adcressed memory.
-.x_mem:
-        mov     r10b, byte [r15 + X_REG] ; Read value of register X
-        cmp     al, X_MEM
-        jne     .y_mem
-        mov     byte [rsi + r10], r9b    ; Set value of [X]
-        jmp     .matched
-.y_mem:
-        mov     r11b, byte [r15 + Y_REG] ; Read value of register Y
-        cmp     al, Y_MEM
-        jne     .xd_mem
-        mov     byte [rsi + r11], r9b    ; Set value of [Y]
-        jmp     .matched
-.xd_mem:
-        mov     r12b, byte [r15 + D_REG] ; Read value of register D
-        cmp     al, XD_MEM
-        jne     .yd_mem
-        add     r12b, r10b               ; Now r12b holds value of X + D
-        mov     byte [rsi + r12], r9b    ; Set value of [X + D]
-        jmp     .matched
-.yd_mem:
-        cmp     al, YD_MEM
-        jne     .matched                 ; Ignore argument not in range [0, 7]
-        add     r12b, r11b               ; Now r12b holds the value of Y + D
-        mov     byte [rsi + r12], r9b    ; Set value of [Y + D]
+       cmp      al, Y_REG
+       ja       .memory
+       mov      byte [r15 + rax], r9b ; Update register value
+       jmp      .matched
+.memory:
+       call     get_adress
+       mov      byte [rsi + r8], r9b ; Update value under address
 .matched:
-        pop     rax
-        ret
-
+       pop      rax
+       ret
 
 so_emul:
         xor     rax, rax  ; Clear register for return value
@@ -331,6 +320,7 @@ xchg:
         cmp     bl, XCHG_LO
         jne     execute_ai
 
+        jmp     success_a2
 
 success_a2:
         call    set_argument ; Parameter is prepared, set updated first argument
