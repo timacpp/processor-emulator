@@ -118,6 +118,18 @@ update_zf:
 .updated:
         ret
 
+; Matches real carry flag value with the value of a virtual one.
+match_cf:
+        cmp    byte [r15 + C_FLAG], 0
+        je     .clear
+.set:
+        stc
+        jmp    .matched
+.clear:
+        clc
+.matched:
+        ret
+
 
 section .bss
 
@@ -300,16 +312,16 @@ sub:
 adc:
         cmp     bl, ADC_LO
         jne     sbb
-        add     r9b, r13b
-        add     r9b, byte [r15 + C_FLAG]
+        call    match_cf
+        adc     r9b, r13b
         call    update_zf
         call    update_cf
         jmp     success_a2
 sbb:
         cmp     bl, SBB_LO
         jne     execute_ai
-        sub     r9b, r13b
-        sub     r9b, byte [r15 + C_FLAG]
+        call    match_cf
+        sbb     r9b, r13b
         call    update_zf
         call    update_cf
         jmp     success_a2
@@ -369,11 +381,12 @@ execute_a1:
         jne     execute_i1  ; then the instruction does not belong to A1
 
 ; Second lowest nibble encodes the instruction type, second highest encodes an agument.
+        xchg    al, ah ; Prepare parameter for get_argument call
         call    get_argument ; Now r9b stores data to which argument refers
 rcr:
         cmp     al, RCR_2LO
         jne     execute_i1
-        mov     al, ah ; Prepare parameter for get_argument call
+        call    match_cf
         rcr     r9b, 1 ; Perform a single rotation
         call    update_cf
         jmp     success_a1
@@ -397,15 +410,15 @@ jnc:
         cmp     ah, JNC_2HI
         jne     jc
         cmp     byte [r15 + C_FLAG], 0  ; Check whether C flag is set:
-        jne     executed                ; - if not set, do nothing
-        add     byte [r15 + PC_CNT], bl ; - if set, increase PC counter
+        jne     executed                ; - if set, do nothing
+        add     byte [r15 + PC_CNT], bl ; - if not set, increase PC counter
         jmp     executed
 jc:
         cmp     ah, JC_2HI
         jne     jnz
         cmp     byte [r15 + C_FLAG], 1  ; Check whether C flag is set:
-        jne     executed                ; - if set, do nothing
-        add     byte [r15 + PC_CNT], bl ; - if not set, increase PC counter
+        jne     executed                ; - if not set, do nothing
+        add     byte [r15 + PC_CNT], bl ; - if set, increase PC counter
         jmp     executed
 jnz:
         cmp     ah, JNZ_2HI
